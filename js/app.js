@@ -6,6 +6,7 @@ const ctx = canvas.getContext("2d");
 
 const NODE_RADIUS = 18;
 const NODE_GAP = 58;
+const POINT_BUDGET = 172;
 
 const nodes = [];
 const selectedNodes = [];
@@ -77,7 +78,9 @@ function updateLegalNextNodes() {
     legalNextNodes.clear();
 
     for (const selectedId of selectedNodes) {
-        const selectedNode = nodes.find(node => node.id === selectedId);
+        const selectedNode = nodes.find(
+            node => node.id === selectedId
+        );
 
         if (!selectedNode) {
             continue;
@@ -127,45 +130,87 @@ function drawNodes() {
     for (const node of nodes) {
         const selected = selectedNodes.includes(node.id);
         const legal = legalNextNodes.has(node.id);
+        const selectedIndex = selectedNodes.indexOf(node.id);
+        const isStartNode = selectedIndex === 0;
 
         ctx.beginPath();
-        ctx.arc(node.x, node.y, NODE_RADIUS, 0, Math.PI * 2);
+        ctx.arc(
+            node.x,
+            node.y,
+            NODE_RADIUS,
+            0,
+            Math.PI * 2
+        );
 
-        ctx.fillStyle = selected
-            ? "#66e0a3"
-            : "#7f8995";
+        if (isStartNode) {
+            ctx.fillStyle = "#f2f4f7";
+        } else if (selected) {
+            ctx.fillStyle = "#66e0a3";
+        } else {
+            ctx.fillStyle = "#7f8995";
+        }
 
         ctx.fill();
 
         ctx.lineWidth = legal ? 4 : 3;
-        ctx.strokeStyle = legal
-            ? "#efff73"
-            : selected
-                ? "#d9ffe9"
-                : "#252b33";
+
+        if (legal) {
+            ctx.strokeStyle = "#efff73";
+        } else if (isStartNode) {
+            ctx.strokeStyle = "#66e0a3";
+        } else if (selected) {
+            ctx.strokeStyle = "#d9ffe9";
+        } else {
+            ctx.strokeStyle = "#252b33";
+        }
 
         ctx.stroke();
 
         if (selected) {
-            const stepNumber = selectedNodes.indexOf(node.id) + 1;
-
             ctx.fillStyle = "#07130d";
             ctx.font = "bold 13px Arial";
             ctx.textAlign = "center";
             ctx.textBaseline = "middle";
-            ctx.fillText(stepNumber, node.x, node.y);
+
+            if (isStartNode) {
+                ctx.fillText("S", node.x, node.y);
+            } else {
+                ctx.fillText(
+                    selectedIndex,
+                    node.x,
+                    node.y
+                );
+            }
         }
     }
 }
 
 function drawBoard() {
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.clearRect(
+        0,
+        0,
+        canvas.width,
+        canvas.height
+    );
 
     ctx.fillStyle = "#111418";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillRect(
+        0,
+        0,
+        canvas.width,
+        canvas.height
+    );
 
     drawConnections();
     drawNodes();
+
+    const spentPoints = Math.max(
+        0,
+        selectedNodes.length - 1
+    );
+
+    const remainingPoints =
+        POINT_BUDGET - spentPoints;
 
     ctx.fillStyle = "#e5e5e5";
     ctx.font = "18px Arial";
@@ -173,13 +218,13 @@ function drawBoard() {
     ctx.textBaseline = "alphabetic";
 
     ctx.fillText(
-        `Selected points: ${selectedNodes.length}`,
+        `Selected points: ${spentPoints}`,
         20,
         30
     );
 
     ctx.fillText(
-        `Remaining from 172: ${172 - selectedNodes.length}`,
+        `Remaining from ${POINT_BUDGET}: ${remainingPoints}`,
         20,
         55
     );
@@ -196,11 +241,17 @@ function resizeCanvas() {
 function getClickedNode(event) {
     const rect = canvas.getBoundingClientRect();
 
-    const scaleX = canvas.width / rect.width;
-    const scaleY = canvas.height / rect.height;
+    const scaleX =
+        canvas.width / rect.width;
 
-    const pointerX = (event.clientX - rect.left) * scaleX;
-    const pointerY = (event.clientY - rect.top) * scaleY;
+    const scaleY =
+        canvas.height / rect.height;
+
+    const pointerX =
+        (event.clientX - rect.left) * scaleX;
+
+    const pointerY =
+        (event.clientY - rect.top) * scaleY;
 
     return nodes.find(node => {
         return Math.hypot(
@@ -223,6 +274,7 @@ function removeLastNode(clickedNode) {
     }
 
     selectedNodes.pop();
+
     updateLegalNextNodes();
     drawBoard();
 }
@@ -243,11 +295,24 @@ canvas.addEventListener("click", event => {
         return;
     }
 
+    const spentPoints = Math.max(
+        0,
+        selectedNodes.length - 1
+    );
+
+    if (spentPoints >= POINT_BUDGET) {
+        return;
+    }
+
     selectedNodes.push(clickedNode.id);
+
     updateLegalNextNodes();
     drawBoard();
 });
 
-window.addEventListener("resize", resizeCanvas);
+window.addEventListener(
+    "resize",
+    resizeCanvas
+);
 
 resizeCanvas();
