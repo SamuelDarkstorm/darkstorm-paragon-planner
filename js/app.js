@@ -8,7 +8,8 @@ const NODE_RADIUS = 18;
 const NODE_GAP = 58;
 
 const nodes = [];
-const selectedNodes = new Set();
+const selectedNodes = [];
+const legalNextNodes = new Set();
 
 const layout = [
     [0, 0, 1, 0, 0],
@@ -24,55 +25,95 @@ function buildNodes() {
     const centerX = canvas.width / 2;
     const centerY = canvas.height / 2;
 
-    const rows = layout.length;
-    const columns = layout[0].length;
-
-    for (let row = 0; row < rows; row++) {
-        for (let column = 0; column < columns; column++) {
+    for (let row = 0; row < layout.length; row++) {
+        for (let column = 0; column < layout[row].length; column++) {
             if (layout[row][column] !== 1) {
                 continue;
             }
-
-            const x =
-                centerX +
-                (column - Math.floor(columns / 2)) * NODE_GAP;
-
-            const y =
-                centerY +
-                (row - Math.floor(rows / 2)) * NODE_GAP;
 
             nodes.push({
                 id: `${row}-${column}`,
                 row,
                 column,
-                x,
-                y
+                x: centerX + (column - 2) * NODE_GAP,
+                y: centerY + (row - 2) * NODE_GAP
             });
+        }
+    }
+
+    if (selectedNodes.length === 0) {
+        const startNode = nodes.find(
+            node => node.row === 4 && node.column === 2
+        );
+
+        if (startNode) {
+            selectedNodes.push(startNode.id);
+        }
+    }
+
+    updateLegalNextNodes();
+}
+
+function getNodeByPosition(row, column) {
+    return nodes.find(
+        node => node.row === row && node.column === column
+    );
+}
+
+function getNeighbors(node) {
+    const positions = [
+        [node.row - 1, node.column],
+        [node.row + 1, node.column],
+        [node.row, node.column - 1],
+        [node.row, node.column + 1]
+    ];
+
+    return positions
+        .map(([row, column]) => getNodeByPosition(row, column))
+        .filter(Boolean);
+}
+
+function updateLegalNextNodes() {
+    legalNextNodes.clear();
+
+    for (const selectedId of selectedNodes) {
+        const selectedNode = nodes.find(node => node.id === selectedId);
+
+        if (!selectedNode) {
+            continue;
+        }
+
+        for (const neighbor of getNeighbors(selectedNode)) {
+            if (!selectedNodes.includes(neighbor.id)) {
+                legalNextNodes.add(neighbor.id);
+            }
         }
     }
 }
 
 function drawConnections() {
-    ctx.strokeStyle = "#39424d";
     ctx.lineWidth = 4;
 
     for (const node of nodes) {
-        const rightNeighbor = nodes.find(
-            other =>
-                other.row === node.row &&
-                other.column === node.column + 1
-        );
+        for (const neighbor of getNeighbors(node)) {
+            const alreadyDrawn =
+                neighbor.row < node.row ||
+                (
+                    neighbor.row === node.row &&
+                    neighbor.column < node.column
+                );
 
-        const lowerNeighbor = nodes.find(
-            other =>
-                other.row === node.row + 1 &&
-                other.column === node.column
-        );
-
-        for (const neighbor of [rightNeighbor, lowerNeighbor]) {
-            if (!neighbor) {
+            if (alreadyDrawn) {
                 continue;
             }
+
+            const bothSelected =
+                selectedNodes.includes(node.id) &&
+                selectedNodes.includes(neighbor.id);
+
+            ctx.strokeStyle = bothSelected
+                ? "#66e0a3"
+                : "#39424d";
 
             ctx.beginPath();
             ctx.moveTo(node.x, node.y);
@@ -84,17 +125,36 @@ function drawConnections() {
 
 function drawNodes() {
     for (const node of nodes) {
-        const selected = selectedNodes.has(node.id);
+        const selected = selectedNodes.includes(node.id);
+        const legal = legalNextNodes.has(node.id);
 
         ctx.beginPath();
         ctx.arc(node.x, node.y, NODE_RADIUS, 0, Math.PI * 2);
 
-        ctx.fillStyle = selected ? "#66e0a3" : "#7f8995";
+        ctx.fillStyle = selected
+            ? "#66e0a3"
+            : "#7f8995";
+
         ctx.fill();
 
-        ctx.lineWidth = 3;
-        ctx.strokeStyle = selected ? "#d9ffe9" : "#252b33";
+        ctx.lineWidth = legal ? 4 : 3;
+        ctx.strokeStyle = legal
+            ? "#efff73"
+            : selected
+                ? "#d9ffe9"
+                : "#252b33";
+
         ctx.stroke();
+
+        if (selected) {
+            const stepNumber = selectedNodes.indexOf(node.id) + 1;
+
+            ctx.fillStyle = "#07130d";
+            ctx.font = "bold 13px Arial";
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            ctx.fillText(stepNumber, node.x, node.y);
+        }
     }
 }
 
@@ -110,7 +170,19 @@ function drawBoard() {
     ctx.fillStyle = "#e5e5e5";
     ctx.font = "18px Arial";
     ctx.textAlign = "left";
-    ctx.fillText(`Selected points: ${selectedNodes.size}`, 20, 30);
+    ctx.textBaseline = "alphabetic";
+
+    ctx.fillText(
+        `Selected points: ${selectedNodes.length}`,
+        20,
+        30
+    );
+
+    ctx.fillText(
+        `Remaining from 172: ${172 - selectedNodes.length}`,
+        20,
+        55
+    );
 }
 
 function resizeCanvas() {
@@ -127,17 +199,32 @@ function getClickedNode(event) {
     const scaleX = canvas.width / rect.width;
     const scaleY = canvas.height / rect.height;
 
-    const mouseX = (event.clientX - rect.left) * scaleX;
-    const mouseY = (event.clientY - rect.top) * scaleY;
+    const pointerX = (event.clientX - rect.left) * scaleX;
+    const pointerY = (event.clientY - rect.top) * scaleY;
 
     return nodes.find(node => {
-        const distance = Math.hypot(
-            mouseX - node.x,
-            mouseY - node.y
-        );
-
-        return distance <= NODE_RADIUS;
+        return Math.hypot(
+            pointerX - node.x,
+            pointerY - node.y
+        ) <= NODE_RADIUS;
     });
+}
+
+function removeLastNode(clickedNode) {
+    const lastSelectedId =
+        selectedNodes[selectedNodes.length - 1];
+
+    if (clickedNode.id !== lastSelectedId) {
+        return;
+    }
+
+    if (selectedNodes.length === 1) {
+        return;
+    }
+
+    selectedNodes.pop();
+    updateLegalNextNodes();
+    drawBoard();
 }
 
 canvas.addEventListener("click", event => {
@@ -147,12 +234,17 @@ canvas.addEventListener("click", event => {
         return;
     }
 
-    if (selectedNodes.has(clickedNode.id)) {
-        selectedNodes.delete(clickedNode.id);
-    } else {
-        selectedNodes.add(clickedNode.id);
+    if (selectedNodes.includes(clickedNode.id)) {
+        removeLastNode(clickedNode);
+        return;
     }
 
+    if (!legalNextNodes.has(clickedNode.id)) {
+        return;
+    }
+
+    selectedNodes.push(clickedNode.id);
+    updateLegalNextNodes();
     drawBoard();
 });
 
