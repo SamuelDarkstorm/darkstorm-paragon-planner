@@ -53,3 +53,50 @@
 - [ ] Responsive UI
 - [ ] Netlify deployment
 - [ ] Documentation
+
+---
+
+# Future Games
+
+## Diablo II: Resurrected
+
+### Character Planner
+- [ ] Skill tree planner
+- [ ] Level-by-level skill progression
+- [ ] Attribute planner
+- [ ] Mercenary planner
+
+### Gear Tools
+- [ ] Runeword planner
+- [ ] Breakpoint calculator
+- [ ] Resistance tracker
+- [ ] Shared stash planner
+
+---
+
+## Diablo III
+
+### Character Planner
+- [ ] Active skills and runes
+- [ ] Passive skills
+- [ ] Kanai's Cube powers
+- [ ] Followers
+
+### Endgame Tools
+- [ ] Gear set planner
+- [ ] Legendary Gem planner
+- [ ] Paragon allocation
+- [ ] Greater Rift loadouts
+
+---
+
+# Dream Features
+
+- [ ] Offline support
+- [ ] Cloud save
+- [ ] Build sharing
+- [ ] Progression guide generator
+- [ ] Multiple character management
+- [ ] Touch-first interface
+- [ ] Controller support
+- [ ] Mobile app (future)
