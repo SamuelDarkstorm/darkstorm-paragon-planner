@@ -271,7 +271,7 @@ function resizeCanvas() {
     buildNodes();
     drawBoard();
 }
-}
+
 
 function getClickedNode(event) {
     const rect = canvas.getBoundingClientRect();
