@@ -50,7 +50,7 @@ function buildNodes() {
         const startNode = nodes.find(
     node => node.type === "S"
 );
-        );
+
 
         if (startNode) {
             selectedNodes.push(startNode.id);
