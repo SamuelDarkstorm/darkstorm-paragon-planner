@@ -46,7 +46,33 @@
 - [ ] Build sharing
 
 ---
+## Version 0.8
+### Smart Build Assistant
+- [ ] Preselect boards
+- [ ] Preselect glyphs
+- [ ] Build priority system (Damage, Defense, Minions, etc.)
+- [ ] Generate legal Paragon paths
+- [ ] Generate multiple route suggestions
+- [ ] Explain why each route was chosen
 
+---
+
+## Version 0.9
+### Polish
+- [ ] Performance optimization
+- [ ] UI improvements
+- [ ] Accessibility
+- [ ] Final bug fixing
+
+---
+
+## Version 1.0
+### Release
+- [ ] Necromancer complete
+- [ ] Responsive UI
+- [ ] Save/Load builds
+- [ ] Documentation
+- [ ] Public release
 ## Version 1.0
 ### Release
 - [ ] Necromancer complete
