@@ -13,12 +13,13 @@ const selectedNodes = [];
 const legalNextNodes = new Set();
 
 const layout = [
-    [0, 0, 1, 0, 0],
-    [0, 1, 1, 1, 0],
-    [1, 1, 1, 1, 1],
-    [0, 1, 1, 1, 0],
-    [0, 0, 1, 0, 0]
+    [0, 0, "N", 0, 0],
+    [0, "M", "N", "R", 0],
+    ["G", "N", "S", "N", "X"],
+    [0, "M", "N", "L", 0],
+    [0, 0, "N", 0, 0]
 ];
+
 
 function buildNodes() {
     nodes.length = 0;
@@ -27,24 +28,28 @@ function buildNodes() {
     const centerY = canvas.height / 2;
 
     for (let row = 0; row < layout.length; row++) {
-        for (let column = 0; column < layout[row].length; column++) {
-            if (layout[row][column] !== 1) {
-                continue;
-            }
+    for (let column = 0; column < layout[row].length; column++) {
 
-            nodes.push({
-                id: `${row}-${column}`,
-                row,
-                column,
-                x: centerX + (column - 2) * NODE_GAP,
-                y: centerY + (row - 2) * NODE_GAP
-            });
+        const nodeType = layout[row][column];
+
+        if (nodeType === 0) {
+            continue;
         }
-    }
 
+        nodes.push({
+            id: `${row}-${column}`,
+            row,
+            column,
+            type: nodeType,
+            x: centerX + (column - 2) * NODE_GAP,
+            y: centerY + (row - 2) * NODE_GAP
+        });
+    }
+}
     if (selectedNodes.length === 0) {
         const startNode = nodes.find(
-            node => node.row === 4 && node.column === 2
+    node => node.type === "S"
+);
         );
 
         if (startNode) {
@@ -126,13 +131,13 @@ function drawConnections() {
     }
 }
 
-function drawNodes() {
+function drawNodes() {  
     for (const node of nodes) {
         const selected = selectedNodes.includes(node.id);
         const legal = legalNextNodes.has(node.id);
         const selectedIndex = selectedNodes.indexOf(node.id);
         const isStartNode = selectedIndex === 0;
-
+        const nodeType = node.type;
         ctx.beginPath();
         ctx.arc(
             node.x,
@@ -142,13 +147,42 @@ function drawNodes() {
             Math.PI * 2
         );
 
-        if (isStartNode) {
+       if (selected) {
+    ctx.fillStyle = "#66e0a3";
+} else {
+    switch (nodeType) {
+        case "S":
             ctx.fillStyle = "#f2f4f7";
-        } else if (selected) {
-            ctx.fillStyle = "#66e0a3";
-        } else {
+            break;
+
+        case "N":
             ctx.fillStyle = "#7f8995";
-        }
+            break;
+
+        case "M":
+            ctx.fillStyle = "#4aa8ff";
+            break;
+
+        case "R":
+            ctx.fillStyle = "#ffd54d";
+            break;
+
+        case "L":
+            ctx.fillStyle = "#ff8c42";
+            break;
+
+        case "X":
+            ctx.fillStyle = "#b96cff";
+            break;
+
+        case "G":
+            ctx.fillStyle = "#d8dde5";
+            break;
+
+        default:
+            ctx.fillStyle = "#7f8995";
+    }
+}
 
         ctx.fill();
 
@@ -236,6 +270,7 @@ function resizeCanvas() {
 
     buildNodes();
     drawBoard();
+}
 }
 
 function getClickedNode(event) {
