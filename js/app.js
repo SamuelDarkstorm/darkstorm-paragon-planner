@@ -4,8 +4,6 @@
 const canvas = document.getElementById("boardCanvas");
 const ctx = canvas.getContext("2d");
 
-const NODE_RADIUS = 18;
-const NODE_GAP = 58;
 const POINT_BUDGET = 172;
 
 const nodes = [];
