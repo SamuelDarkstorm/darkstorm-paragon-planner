@@ -73,12 +73,7 @@
 - [ ] Save/Load builds
 - [ ] Documentation
 - [ ] Public release
-## Version 1.0
-### Release
-- [ ] Necromancer complete
-- [ ] Responsive UI
-- [ ] Netlify deployment
-- [ ] Documentation
+
 
 ---
 
