@@ -3,43 +3,232 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Darkstorm Paragon Planner</title>
-
+    <title>Darkstorm Prototype 0.1</title>
     <link rel="stylesheet" href="css/styles.css">
 </head>
-
 <body>
-
-<header>
-    <h1>💀 Darkstorm Paragon Planner</h1>
-    <p>Build. Plan. Perfect.</p>
+<header class="site-header">
+    <div>
+        <p class="eyebrow">Prototype 0.1 · Vertical Slice</p>
+        <h1>💀 Darkstorm</h1>
+        <p>What should I do next, and why?</p>
+    </div>
+    <div class="header-actions">
+        <button id="loadDemoButton" type="button">Load Demo Character</button>
+        <button id="saveButton" type="button" class="secondary">Save</button>
+        <button id="exportButton" type="button" class="secondary">Export JSON</button>
+        <label class="button secondary" for="importInput">Import JSON</label>
+        <input id="importInput" type="file" accept=".json,application/json" hidden>
+    </div>
 </header>
 
-<main>
+<nav class="step-nav" aria-label="Prototype sections">
+    <a href="#character">1. Character</a>
+    <a href="#snapshot">2. Snapshot</a>
+    <a href="#mission-control">3. Mission Control</a>
+    <a href="#gear">4. Gear</a>
+    <a href="#paragon">5. Paragon</a>
+    <a href="#feedback">6. Test</a>
+</nav>
 
-    <aside id="sidebar">
+<main class="prototype-shell">
+    <section class="panel" id="character">
+        <div class="section-heading">
+            <div>
+                <p class="step-label">Step 1</p>
+                <h2>Character Profile</h2>
+            </div>
+            <span id="saveStatus" class="status-pill">Not saved</span>
+        </div>
 
-        <h2>Boards</h2>
-
-        <select id="boardSelect">
-            <option>Starting Board</option>
-        </select>
-
-        <button id="newBoard">
-            Add Board
-        </button>
-
-    </aside>
-
-    <section id="planner">
-
-        <canvas id="boardCanvas"></canvas>
-
+        <div class="form-grid">
+            <label>Character Name
+                <input id="characterName" type="text" placeholder="Character name">
+            </label>
+            <label>Class
+                <select id="className">
+                    <option>Necromancer</option>
+                    <option>Barbarian</option>
+                    <option>Sorcerer</option>
+                    <option>Rogue</option>
+                    <option>Druid</option>
+                    <option>Spiritborn</option>
+                    <option>Warlock</option>
+                    <option>Other</option>
+                </select>
+            </label>
+            <label>Realm
+                <select id="realm">
+                    <option>Seasonal</option>
+                    <option>Eternal</option>
+                </select>
+            </label>
+            <label>Level
+                <input id="level" type="number" min="1" max="100" value="60">
+            </label>
+            <label>Difficulty
+                <input id="difficulty" type="text" placeholder="Torment II">
+            </label>
+            <label>Primary Goal
+                <select id="goal">
+                    <option value="survivability">Survivability</option>
+                    <option value="damage">Damage</option>
+                    <option value="clear-speed">Clear speed</option>
+                    <option value="balanced">Balanced</option>
+                </select>
+            </label>
+        </div>
     </section>
 
-</main>
-<script src="js/constants.js"></script>
-<script src="js/app.js"></script>
+    <section class="panel" id="snapshot">
+        <div class="section-heading">
+            <div>
+                <p class="step-label">Step 2</p>
+                <h2>Build Snapshot</h2>
+            </div>
+            <button id="analyzeButton" type="button">Analyze Build</button>
+        </div>
 
+        <div class="form-grid two-column">
+            <label>Build / Archetype
+                <input id="archetype" type="text" placeholder="Minion Necromancer">
+            </label>
+            <label>Current Problem
+                <select id="problem">
+                    <option value="survivability">I am dying too often</option>
+                    <option value="damage">Damage feels too low</option>
+                    <option value="clear-speed">Clears feel too slow</option>
+                    <option value="resource">Resource feels unstable</option>
+                    <option value="unsure">I am not sure what to improve</option>
+                </select>
+            </label>
+            <label class="full-width">Active Skills
+                <textarea id="skills" rows="3" placeholder="Separate skills with commas"></textarea>
+            </label>
+            <label class="full-width">Build Notes
+                <textarea id="buildNotes" rows="3" placeholder="Anything Darkstorm should know about the build"></textarea>
+            </label>
+        </div>
+    </section>
+
+    <section class="panel mission-panel" id="mission-control">
+        <div class="section-heading">
+            <div>
+                <p class="step-label">Step 3</p>
+                <h2>Mission Control</h2>
+            </div>
+            <span id="confidenceBadge" class="confidence">Confidence: --</span>
+        </div>
+
+        <div class="priority-card">
+            <p class="muted">Current Priority</p>
+            <h3 id="recommendationTitle">Load a character and analyze the build.</h3>
+            <p id="recommendationSummary">Darkstorm will use the character, gear, problem, goal, Paragon context, and test feedback below.</p>
+        </div>
+
+        <div class="explanation-grid">
+            <article><h3>Why</h3><p id="whyText">Waiting for analysis.</p></article>
+            <article><h3>Why now</h3><p id="whyNowText">Waiting for analysis.</p></article>
+            <article><h3>Why not</h3><p id="whyNotText">Waiting for analysis.</p></article>
+            <article><h3>What changes this</h3><p id="changesText">Waiting for analysis.</p></article>
+        </div>
+    </section>
+
+    <section class="panel" id="gear">
+        <div class="section-heading">
+            <div>
+                <p class="step-label">Step 4</p>
+                <h2>Gear Comparison</h2>
+            </div>
+            <span id="gearVerdict" class="status-pill">No comparison yet</span>
+        </div>
+
+        <div class="gear-grid">
+            <fieldset>
+                <legend>Equipped Chest</legend>
+                <label>Name <input id="equippedName" type="text"></label>
+                <label>Armor <input id="equippedArmor" type="number" min="0"></label>
+                <label>Maximum Life <input id="equippedLife" type="number" min="0"></label>
+                <label>Resistance / DR <input id="equippedDefense" type="number" min="0"></label>
+                <label>Damage Value <input id="equippedDamage" type="number" min="0"></label>
+            </fieldset>
+
+            <fieldset>
+                <legend>Candidate Chest</legend>
+                <label>Name <input id="candidateName" type="text"></label>
+                <label>Armor <input id="candidateArmor" type="number" min="0"></label>
+                <label>Maximum Life <input id="candidateLife" type="number" min="0"></label>
+                <label>Resistance / DR <input id="candidateDefense" type="number" min="0"></label>
+                <label>Damage Value <input id="candidateDamage" type="number" min="0"></label>
+            </fieldset>
+        </div>
+
+        <div class="action-row">
+            <button id="compareGearButton" type="button">Compare Gear</button>
+            <button id="equipCandidateButton" type="button" class="secondary" disabled>Equip Candidate</button>
+        </div>
+        <p id="gearReason" class="result-text">Enter two items or load the demo character.</p>
+    </section>
+
+    <section class="panel" id="paragon">
+        <div class="section-heading">
+            <div>
+                <p class="step-label">Step 5</p>
+                <h2>Paragon Lab</h2>
+            </div>
+            <span class="status-pill">Existing planner engine</span>
+        </div>
+
+        <div class="form-grid paragon-meta">
+            <label>Board
+                <input id="paragonBoardName" type="text" value="Necromancer Starting Board">
+            </label>
+            <label>Glyph
+                <input id="glyphName" type="text" placeholder="Glyph name">
+            </label>
+            <label>Glyph Level
+                <input id="glyphLevel" type="number" min="1" max="100" value="1">
+            </label>
+        </div>
+
+        <div id="planner">
+            <canvas id="boardCanvas"></canvas>
+        </div>
+        <p class="muted">The board remains the existing interactive prototype. Click a highlighted legal node to extend the path; click the most recent selected node to undo it.</p>
+    </section>
+
+    <section class="panel" id="feedback">
+        <div class="section-heading">
+            <div>
+                <p class="step-label">Step 6</p>
+                <h2>Test Feedback</h2>
+            </div>
+            <span id="feedbackStatus" class="status-pill">No test result</span>
+        </div>
+
+        <p>After making a change, tell Darkstorm how the character felt. This becomes context for the next recommendation.</p>
+        <div class="feedback-buttons" role="group" aria-label="Test result">
+            <button type="button" data-feedback="better">Better</button>
+            <button type="button" data-feedback="same" class="secondary">No noticeable change</button>
+            <button type="button" data-feedback="worse" class="danger">Worse</button>
+        </div>
+        <label>Test Notes
+            <textarea id="feedbackNotes" rows="3" placeholder="Example: Mages stayed alive and Torment II felt smoother."></textarea>
+        </label>
+        <div class="action-row">
+            <button id="applyFeedbackButton" type="button">Apply Feedback & Recalculate</button>
+            <button id="resetButton" type="button" class="secondary">Reset Prototype</button>
+        </div>
+    </section>
+</main>
+
+<footer>
+    Darkstorm Prototype 0.1 · Functional first, polish later.
+</footer>
+
+<script src="js/constants.js"></script>
+<script src="data/demo-character.js"></script>
+<script src="js/app.js"></script>
+<script src="js/prototype.js"></script>
 </body>
 </html>
