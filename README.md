@@ -1,30 +1,52 @@
-# 💀 Darkstorm Planner
+# 💀 Darkstorm
 
-A touch-friendly planning suite for Diablo games.
+Darkstorm is an experimental Diablo decision-support companion built around one question:
 
-Build.
-Plan.
-Perfect.
+> **What should I do next, and why?**
 
-Status:
-🚧 Active Development
+## Prototype 0.1
 
-The planner currently includes a functional Paragon prototype and is being refactored into a data-driven architecture. The first fully implemented board will be the Necromancer Starting Board.
+The `prototype/v0.1` branch expands the original Paragon planner into a functional vertical slice of the complete Darkstorm player loop.
 
-## Current Features
-The current prototype serves as the foundation for a fully data-driven planner capable of supporting multiple Diablo titles.
+Current prototype flow:
+
+- Character profile
+- Build snapshot
+- Mission Control recommendation
+- Gear comparison
+- Existing interactive Paragon board
+- Player test feedback
+- Recommendation recalculation
+- Browser save
+- JSON export/import
+
+The reference implementation currently focuses most deeply on a Minion/Summoner Necromancer. Other classes can be entered to test the application framework, but their class-specific intelligence is intentionally limited.
+
+### Important
+
+Prototype 0.1 uses simplified heuristics. It is designed to test Darkstorm's workflow and decision model, **not** to provide authoritative Diablo IV calculations or live game data.
+
+See `docs/PROTOTYPE_SCOPE.md` for the prototype contract and success criteria.
+
+## Original Planner Foundation
+
+The repository began as a touch-friendly Diablo Paragon planner and already includes:
 
 - Interactive Paragon prototype
 - Touch and mouse support
 - Node path validation
-- GitHub + Netlify deployment
-- Project architecture established
+- Data-driven architecture direction
+- GitHub + Netlify deployment foundation
+
+The existing Paragon engine is being reused rather than thrown away.
 
 ## Technologies
 
 - HTML5
 - CSS3
-- JavaScript (Vanilla)
+- Vanilla JavaScript
+- LocalStorage
+- JSON import/export
 - Git
 - GitHub
 - Netlify
@@ -34,30 +56,17 @@ The current prototype serves as the foundation for a fully data-driven planner c
 ```text
 assets/
 css/
+data/
 docs/
 js/
-└── boards/
+  boards/
+index.html
+README.md
+ROADMAP.md
 ```
-## Roadmap
 
-For planned features, milestones, and future development goals, see **ROADMAP.md**.
+## Development Principle
 
-## Coming Next
+Prototype quickly. Learn from it. Rebuild intentionally.
 
-- Real Necromancer Starting Board
-- Data-driven board loading
-- Multi-board support
-- Glyph sockets
-- Save and load builds
-
-## Vision
-
-Darkstorm Planner is being designed as a reusable planning engine capable of supporting multiple Diablo titles.
-
-Planned support includes:
-
-- Diablo IV
-- Diablo II: Resurrected
-- Diablo III
-
-Future features include guided build creation, progression planning, and intelligent path recommendations.
+The prototype is allowed to be rough. The long-term production version should be rebuilt with stronger architecture, testing, authoritative game data, and maintainable code ownership.
