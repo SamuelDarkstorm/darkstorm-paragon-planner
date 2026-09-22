@@ -184,9 +184,16 @@ function updateLoadoutStatus() {
     status.textContent = `${filled} / ${EQUIPMENT_SLOTS.length} slots filled`;
 }
 
-function loadChestFromLoadout() {
-    const chest = getLoadoutItem("chest");
-    setGear("equipped", chest);
+function comparisonSlotLabel(slotKey = el.comparisonSlot?.value) {
+    return EQUIPMENT_SLOTS.find(slot => slot.key === slotKey)?.label ?? "Item";
+}
+
+function loadSelectedSlotFromLoadout() {
+    const slotKey = el.comparisonSlot.value;
+    const equippedItem = getLoadoutItem(slotKey);
+    setGear("equipped", equippedItem);
+    prototypeState.lastGearComparison = null;
+    prototypeState.candidateEquipped = false;
     resetGearVerdict();
     markUnsaved();
 }
@@ -194,9 +201,13 @@ function loadChestFromLoadout() {
 
 const ids = [
     "characterName", "className", "realm", "level", "difficulty", "goal",
-    "archetype", "problem", "skills", "buildNotes",
-    "equippedName", "equippedArmor", "equippedLife", "equippedDefense", "equippedDamage",
-    "candidateName", "candidateArmor", "candidateLife", "candidateDefense", "candidateDamage",
+    "archetype", "problem", "skills", "buildNotes", "comparisonSlot",
+    "equippedName", "equippedItemType", "equippedItemPower", "equippedArmor", "equippedLife",
+    "equippedDefense", "equippedDamage", "equippedPower", "equippedAffixes", "equippedTempers",
+    "equippedMasterwork", "equippedSockets",
+    "candidateName", "candidateItemType", "candidateItemPower", "candidateArmor", "candidateLife",
+    "candidateDefense", "candidateDamage", "candidatePower", "candidateAffixes", "candidateTempers",
+    "candidateMasterwork", "candidateSockets",
     "paragonBoardName", "glyphName", "glyphLevel", "feedbackNotes"
 ];
 
@@ -210,10 +221,17 @@ function numberValue(input) {
 function getGear(prefix) {
     return {
         name: el[prefix + "Name"].value.trim() || "Unnamed item",
+        itemType: el[prefix + "ItemType"].value.trim(),
+        itemPower: numberValue(el[prefix + "ItemPower"]),
         armor: numberValue(el[prefix + "Armor"]),
         life: numberValue(el[prefix + "Life"]),
         defense: numberValue(el[prefix + "Defense"]),
-        damage: numberValue(el[prefix + "Damage"])
+        damage: numberValue(el[prefix + "Damage"]),
+        power: el[prefix + "Power"].value.trim(),
+        affixes: el[prefix + "Affixes"].value.trim(),
+        tempers: el[prefix + "Tempers"].value.trim(),
+        masterwork: numberValue(el[prefix + "Masterwork"]),
+        sockets: numberValue(el[prefix + "Sockets"])
     };
 }
 
@@ -239,6 +257,7 @@ function getCharacterFromForm() {
         },
         gear: {
             loadout: getLoadoutFromForm(),
+            comparisonSlot: el.comparisonSlot.value,
             equipped: getGear("equipped"),
             candidate: getGear("candidate")
         },
@@ -256,10 +275,17 @@ function getCharacterFromForm() {
 
 function setGear(prefix, gear) {
     el[prefix + "Name"].value = gear?.name ?? "";
+    el[prefix + "ItemType"].value = gear?.itemType ?? "";
+    el[prefix + "ItemPower"].value = gear?.itemPower ?? 0;
     el[prefix + "Armor"].value = gear?.armor ?? 0;
     el[prefix + "Life"].value = gear?.life ?? 0;
     el[prefix + "Defense"].value = gear?.defense ?? 0;
     el[prefix + "Damage"].value = gear?.damage ?? 0;
+    el[prefix + "Power"].value = gear?.power ?? "";
+    el[prefix + "Affixes"].value = gear?.affixes ?? "";
+    el[prefix + "Tempers"].value = gear?.tempers ?? "";
+    el[prefix + "Masterwork"].value = gear?.masterwork ?? 0;
+    el[prefix + "Sockets"].value = gear?.sockets ?? 0;
 }
 
 function populateForm(character) {
@@ -286,7 +312,9 @@ function populateForm(character) {
     }
 
     setLoadout(loadout);
-    setGear("equipped", character.gear?.equipped ?? loadout.chest ?? {});
+    el.comparisonSlot.value = character.gear?.comparisonSlot ?? "chest";
+    const selectedEquipped = loadout[el.comparisonSlot.value] ?? {};
+    setGear("equipped", character.gear?.equipped ?? selectedEquipped);
     setGear("candidate", character.gear?.candidate ?? {});
 
     el.paragonBoardName.value = character.paragon?.board ?? "Necromancer Starting Board";
@@ -449,12 +477,17 @@ function compareGear() {
     if (delta > 25) verdict = "SWAP";
     if (delta < -25) verdict = "KEEP";
 
+    const slotKey = el.comparisonSlot.value;
+    const slotLabel = comparisonSlotLabel(slotKey);
+
     const comparison = {
         verdict,
         delta,
         equippedScore,
         candidateScore,
-        goal: character.profile.goal
+        goal: character.profile.goal,
+        slotKey,
+        slotLabel
     };
 
     prototypeState.lastGearComparison = comparison;
@@ -469,7 +502,7 @@ function compareGear() {
     const absoluteDelta = Math.abs(Math.round(delta));
 
     reasonEl.textContent =
-        `${candidate.name} scores ${absoluteDelta} prototype points ${direction} than ${equipped.name} for the current "${character.profile.goal}" goal. This is a test heuristic, not a live Diablo IV damage calculator.`;
+        `${candidate.name} scores ${absoluteDelta} prototype points ${direction} than ${equipped.name} in the ${slotLabel} slot for the current "${character.profile.goal}" goal. This is a test heuristic, not a live Diablo IV damage calculator.`;
 
     equipButton.disabled = verdict === "KEEP";
 
@@ -484,8 +517,9 @@ function resetGearVerdict() {
 
 function equipCandidate() {
     const candidate = getGear("candidate");
+    const slotKey = el.comparisonSlot.value;
     setGear("equipped", candidate);
-    setLoadoutItem("chest", {
+    setLoadoutItem(slotKey, {
         ...emptyLoadoutItem(),
         ...candidate
     });
@@ -529,7 +563,7 @@ function recommendationFor(character) {
 
     if (gearComparison?.verdict === "SWAP" && !prototypeState.candidateEquipped) {
         return {
-            title: "Test the candidate chest piece.",
+            title: `Test the candidate ${(gearComparison.slotLabel ?? "item").toLowerCase()}.`,
             summary: "Darkstorm found a candidate that better matches the current goal using the prototype heuristic.",
             why: "The candidate scores meaningfully better for the selected priority.",
             whyNow: "It is a reversible change with a clear before-and-after test.",
@@ -735,6 +769,7 @@ function resetPrototype() {
         },
         gear: {
             loadout: {},
+            comparisonSlot: "chest",
             equipped: {},
             candidate: {}
         },
@@ -774,7 +809,11 @@ document.getElementById("importInput").addEventListener("change", event => {
     event.target.value = "";
 });
 document.getElementById("analyzeButton").addEventListener("click", analyzeBuild);
-document.getElementById("loadChestFromLoadoutButton").addEventListener("click", loadChestFromLoadout);
+document.getElementById("loadSlotFromLoadoutButton").addEventListener("click", loadSelectedSlotFromLoadout);
+el.comparisonSlot.addEventListener("change", () => {
+    loadSelectedSlotFromLoadout();
+    setGear("candidate", {});
+});
 document.getElementById("compareGearButton").addEventListener("click", () => {
     compareGear();
     analyzeBuild();
