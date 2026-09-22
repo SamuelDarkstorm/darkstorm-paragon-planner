@@ -172,28 +172,59 @@
             <span id="gearVerdict" class="status-pill">No comparison yet</span>
         </div>
 
+        <div class="comparison-slot-row">
+            <label>Comparison Slot
+                <select id="comparisonSlot">
+                    <option value="helm">Helm</option>
+                    <option value="chest" selected>Chest Armor</option>
+                    <option value="gloves">Gloves</option>
+                    <option value="pants">Pants</option>
+                    <option value="boots">Boots</option>
+                    <option value="amulet">Amulet</option>
+                    <option value="ring1">Ring 1</option>
+                    <option value="ring2">Ring 2</option>
+                    <option value="mainHand">Main Hand</option>
+                    <option value="offHand">Off Hand</option>
+                </select>
+            </label>
+        </div>
+
         <div class="gear-grid">
             <fieldset>
-                <legend>Equipped Chest</legend>
+                <legend>Equipped Item</legend>
                 <label>Name <input id="equippedName" type="text"></label>
+                <label>Item Type <input id="equippedItemType" type="text"></label>
+                <label>Item Power <input id="equippedItemPower" type="number" min="0"></label>
                 <label>Armor <input id="equippedArmor" type="number" min="0"></label>
                 <label>Maximum Life <input id="equippedLife" type="number" min="0"></label>
                 <label>Resistance / DR <input id="equippedDefense" type="number" min="0"></label>
                 <label>Damage Value <input id="equippedDamage" type="number" min="0"></label>
+                <label>Aspect / Unique Power <input id="equippedPower" type="text"></label>
+                <label>Affixes <textarea id="equippedAffixes" rows="2"></textarea></label>
+                <label>Tempers <textarea id="equippedTempers" rows="2"></textarea></label>
+                <label>Masterwork <input id="equippedMasterwork" type="number" min="0" max="12"></label>
+                <label>Sockets <input id="equippedSockets" type="number" min="0" max="2"></label>
             </fieldset>
 
             <fieldset>
-                <legend>Candidate Chest</legend>
+                <legend>Candidate Item</legend>
                 <label>Name <input id="candidateName" type="text"></label>
+                <label>Item Type <input id="candidateItemType" type="text"></label>
+                <label>Item Power <input id="candidateItemPower" type="number" min="0"></label>
                 <label>Armor <input id="candidateArmor" type="number" min="0"></label>
                 <label>Maximum Life <input id="candidateLife" type="number" min="0"></label>
                 <label>Resistance / DR <input id="candidateDefense" type="number" min="0"></label>
                 <label>Damage Value <input id="candidateDamage" type="number" min="0"></label>
+                <label>Aspect / Unique Power <input id="candidatePower" type="text"></label>
+                <label>Affixes <textarea id="candidateAffixes" rows="2"></textarea></label>
+                <label>Tempers <textarea id="candidateTempers" rows="2"></textarea></label>
+                <label>Masterwork <input id="candidateMasterwork" type="number" min="0" max="12"></label>
+                <label>Sockets <input id="candidateSockets" type="number" min="0" max="2"></label>
             </fieldset>
         </div>
 
         <div class="action-row">
-            <button id="loadChestFromLoadoutButton" type="button" class="secondary">Load Chest from Loadout</button>
+            <button id="loadSlotFromLoadoutButton" type="button" class="secondary">Load Equipped Item from Loadout</button>
             <button id="compareGearButton" type="button">Compare Gear</button>
             <button id="equipCandidateButton" type="button" class="secondary" disabled>Equip Candidate</button>
         </div>
