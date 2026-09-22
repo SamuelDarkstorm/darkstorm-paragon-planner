@@ -38,7 +38,10 @@
                 <p class="step-label">Step 1</p>
                 <h2>Character Profile</h2>
             </div>
-            <span id="saveStatus" class="status-pill">Not saved</span>
+            <div class="header-actions">
+                <span id="classKnowledgeBadge" class="status-pill">Class knowledge: --</span>
+                <span id="saveStatus" class="status-pill">Not saved</span>
+            </div>
         </div>
 
         <div class="form-grid">
@@ -87,6 +90,14 @@
                 <h2>Build Snapshot</h2>
             </div>
             <button id="analyzeButton" type="button">Analyze Build</button>
+        </div>
+
+        <div id="classMismatchWarning" class="warning-card" hidden>
+            <div>
+                <strong>Build/class mismatch detected.</strong>
+                <p id="classMismatchText">Review the snapshot before analysis.</p>
+            </div>
+            <button id="resetSnapshotButton" type="button" class="secondary">Reset Build Snapshot</button>
         </div>
 
         <div class="form-grid two-column">
