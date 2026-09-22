@@ -3,13 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Darkstorm Prototype 0.1</title>
+    <title>Darkstorm Prototype 0.2</title>
     <link rel="stylesheet" href="css/styles.css">
 </head>
 <body>
 <header class="site-header">
     <div>
-        <p class="eyebrow">Prototype 0.1 · Vertical Slice</p>
+        <p class="eyebrow">Prototype 0.2 · Character Model</p>
         <h1>💀 Darkstorm</h1>
         <p>What should I do next, and why?</p>
     </div>
@@ -26,9 +26,10 @@
     <a href="#character">1. Character</a>
     <a href="#snapshot">2. Snapshot</a>
     <a href="#mission-control">3. Mission Control</a>
-    <a href="#gear">4. Gear</a>
-    <a href="#paragon">5. Paragon</a>
-    <a href="#feedback">6. Test</a>
+    <a href="#loadout">4. Loadout</a>
+    <a href="#gear">5. Compare</a>
+    <a href="#paragon">6. Paragon</a>
+    <a href="#feedback">7. Test</a>
 </nav>
 
 <main class="prototype-shell">
@@ -146,10 +147,26 @@
         </div>
     </section>
 
-    <section class="panel" id="gear">
+    <section class="panel" id="loadout">
         <div class="section-heading">
             <div>
                 <p class="step-label">Step 4</p>
+                <h2>Equipment Loadout</h2>
+            </div>
+            <span id="loadoutStatus" class="status-pill">10 equipment slots</span>
+        </div>
+
+        <p class="muted section-intro">
+            Record the character's equipped gear here. Open a slot to add the item name, power, stats, aspect or unique power, affixes, tempers, masterworking, and sockets.
+        </p>
+
+        <div id="equipmentLoadout" class="equipment-loadout" aria-label="Equipment loadout"></div>
+    </section>
+
+    <section class="panel" id="gear">
+        <div class="section-heading">
+            <div>
+                <p class="step-label">Step 5</p>
                 <h2>Gear Comparison</h2>
             </div>
             <span id="gearVerdict" class="status-pill">No comparison yet</span>
@@ -176,6 +193,7 @@
         </div>
 
         <div class="action-row">
+            <button id="loadChestFromLoadoutButton" type="button" class="secondary">Load Chest from Loadout</button>
             <button id="compareGearButton" type="button">Compare Gear</button>
             <button id="equipCandidateButton" type="button" class="secondary" disabled>Equip Candidate</button>
         </div>
@@ -185,7 +203,7 @@
     <section class="panel" id="paragon">
         <div class="section-heading">
             <div>
-                <p class="step-label">Step 5</p>
+                <p class="step-label">Step 6</p>
                 <h2>Paragon Lab</h2>
             </div>
             <span class="status-pill">Existing planner engine</span>
@@ -212,7 +230,7 @@
     <section class="panel" id="feedback">
         <div class="section-heading">
             <div>
-                <p class="step-label">Step 6</p>
+                <p class="step-label">Step 7</p>
                 <h2>Test Feedback</h2>
             </div>
             <span id="feedbackStatus" class="status-pill">No test result</span>
@@ -235,7 +253,7 @@
 </main>
 
 <footer>
-    Darkstorm Prototype 0.1 · Functional first, polish later.
+    Darkstorm Prototype 0.2 · Richer character data, functional first.
 </footer>
 
 <script src="js/constants.js"></script>
