@@ -106,6 +106,120 @@ function populateForm(character) {
     updateFeedbackUI();
     resetGearVerdict();
     markUnsaved();
+    updateClassAwareness();
+}
+
+const KNOWN_CLASSES = [
+    "Necromancer",
+    "Barbarian",
+    "Sorcerer",
+    "Rogue",
+    "Druid",
+    "Spiritborn",
+    "Warlock"
+];
+
+const NECROMANCER_MARKERS = [
+    "minion necromancer",
+    "raise skeleton",
+    "corpse tendrils",
+    "decrepify",
+    "sacrificial",
+    "necromancer starting board"
+];
+
+function classKnowledgeFor(character) {
+    const className = character.profile.className;
+    const archetype = character.build.archetype.toLowerCase();
+
+    if (className === "Necromancer" && /minion|summon/.test(archetype)) {
+        return {
+            label: "Reference implementation",
+            confidenceCap: 100
+        };
+    }
+
+    if (className === "Necromancer") {
+        return {
+            label: "Partial",
+            confidenceCap: 75
+        };
+    }
+
+    return {
+        label: "Generic / early",
+        confidenceCap: 60
+    };
+}
+
+function detectClassMismatch(character) {
+    const selectedClass = character.profile.className;
+    const snapshotText = [
+        character.build.archetype,
+        ...character.build.skills,
+        character.paragon.board,
+        character.paragon.glyph
+    ].join(" ").toLowerCase();
+
+    const namedOtherClass = KNOWN_CLASSES.find(className =>
+        className !== selectedClass &&
+        snapshotText.includes(className.toLowerCase())
+    );
+
+    if (namedOtherClass) {
+        return `Selected class is ${selectedClass}, but the build snapshot still references ${namedOtherClass}.`;
+    }
+
+    if (
+        selectedClass !== "Necromancer" &&
+        NECROMANCER_MARKERS.some(marker => snapshotText.includes(marker))
+    ) {
+        return `Selected class is ${selectedClass}, but the snapshot still contains Necromancer-specific build data.`;
+    }
+
+    return null;
+}
+
+function updateClassAwareness() {
+    const character = getCharacterFromForm();
+    const knowledge = classKnowledgeFor(character);
+    const mismatch = detectClassMismatch(character);
+
+    document.getElementById("classKnowledgeBadge").textContent =
+        `Class knowledge: ${knowledge.label}`;
+
+    const warning = document.getElementById("classMismatchWarning");
+    const warningText = document.getElementById("classMismatchText");
+
+    if (mismatch) {
+        warning.hidden = false;
+        warningText.textContent = mismatch;
+    } else {
+        warning.hidden = true;
+        warningText.textContent = "";
+    }
+}
+
+function resetBuildSnapshotForClass() {
+    const selectedClass = el.className.value;
+
+    el.archetype.value = "";
+    el.problem.value = "unsure";
+    el.skills.value = "";
+    el.buildNotes.value = "";
+    el.paragonBoardName.value =
+        selectedClass === "Necromancer" ? "Necromancer Starting Board" : "";
+    el.glyphName.value = "";
+    el.glyphLevel.value = 1;
+
+    prototypeState.feedbackResult = null;
+    prototypeState.lastGearComparison = null;
+    prototypeState.candidateEquipped = false;
+
+    updateFeedbackUI();
+    resetGearVerdict();
+    updateClassAwareness();
+    markUnsaved();
 }
 
 function defensiveScore(item) {
@@ -287,7 +401,40 @@ function recommendationFor(character) {
 
 function analyzeBuild() {
     const character = getCharacterFromForm();
-    const recommendation = recommendationFor(character);
+    updateClassAwareness();
+
+    const mismatch = detectClassMismatch(character);
+    const knowledge = classKnowledgeFor(character);
+
+    let recommendation;
+
+    if (mismatch) {
+        recommendation = {
+            title: "Review the build snapshot before continuing.",
+            summary: mismatch,
+            why: "Darkstorm found character data that appears to belong to a different class.",
+            whyNow: "Using incompatible class data would make later recommendations unreliable.",
+            whyNot: "Darkstorm should not guess how to translate skills, archetypes, or Paragon data between classes.",
+            changes: "Reset or correct the build snapshot so it matches the selected class, then analyze again.",
+            confidence: 98
+        };
+    } else {
+        recommendation = recommendationFor(character);
+
+        const isDirectFeedback =
+            prototypeState.feedbackResult === "better" ||
+            prototypeState.feedbackResult === "worse";
+
+        if (!isDirectFeedback && recommendation.confidence > knowledge.confidenceCap) {
+            recommendation = {
+                ...recommendation,
+                confidence: knowledge.confidenceCap,
+                summary:
+                    `Class-specific knowledge for ${character.profile.className} is currently ${knowledge.label.toLowerCase()}. ` +
+                    recommendation.summary
+            };
+        }
+    }
 
     document.getElementById("recommendationTitle").textContent = recommendation.title;
     document.getElementById("recommendationSummary").textContent = recommendation.summary;
@@ -445,6 +592,15 @@ document.getElementById("applyFeedbackButton").addEventListener("click", () => {
 });
 
 document.getElementById("resetButton").addEventListener("click", resetPrototype);
+document.getElementById("resetSnapshotButton").addEventListener(
+    "click",
+    resetBuildSnapshotForClass
+);
+
+el.className.addEventListener("change", updateClassAwareness);
+["archetype", "skills", "paragonBoardName", "glyphName"].forEach(id => {
+    el[id].addEventListener("input", updateClassAwareness);
+});
 
 document.querySelectorAll("input, select, textarea").forEach(input => {
     input.addEventListener("change", markUnsaved);
@@ -458,5 +614,8 @@ if (savedPrototype) {
         analyzeBuild();
     } catch (error) {
         localStorage.removeItem(STORAGE_KEY);
+        updateClassAwareness();
     }
+} else {
+    updateClassAwareness();
 }
