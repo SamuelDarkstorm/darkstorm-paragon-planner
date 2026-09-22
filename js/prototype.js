@@ -1,14 +1,196 @@
-// Darkstorm Prototype 0.1
+// Darkstorm Prototype 0.2
 // Complete-player-loop controller.
 // This is intentionally simple and readable so the prototype can be rebuilt deliberately later.
 
-const STORAGE_KEY = "darkstorm-prototype-v0.1";
+const STORAGE_KEY = "darkstorm-prototype-v0.2";
 
 const prototypeState = {
     feedbackResult: null,
     lastGearComparison: null,
     candidateEquipped: false
 };
+
+const EQUIPMENT_SLOTS = [
+    { key: "helm", label: "Helm" },
+    { key: "chest", label: "Chest Armor" },
+    { key: "gloves", label: "Gloves" },
+    { key: "pants", label: "Pants" },
+    { key: "boots", label: "Boots" },
+    { key: "amulet", label: "Amulet" },
+    { key: "ring1", label: "Ring 1" },
+    { key: "ring2", label: "Ring 2" },
+    { key: "mainHand", label: "Main Hand" },
+    { key: "offHand", label: "Off Hand" }
+];
+
+const LOADOUT_FIELDS = [
+    { key: "name", label: "Item Name", type: "text", wide: true },
+    { key: "itemType", label: "Item Type", type: "text" },
+    { key: "itemPower", label: "Item Power", type: "number", min: 0 },
+    { key: "armor", label: "Armor", type: "number", min: 0 },
+    { key: "life", label: "Maximum Life", type: "number", min: 0 },
+    { key: "defense", label: "Resistance / DR", type: "number", min: 0 },
+    { key: "damage", label: "Damage Value", type: "number", min: 0 },
+    { key: "power", label: "Aspect / Unique Power", type: "text", wide: true },
+    { key: "affixes", label: "Affixes", type: "textarea", wide: true },
+    { key: "tempers", label: "Tempers", type: "textarea", wide: true },
+    { key: "masterwork", label: "Masterwork", type: "number", min: 0, max: 12 },
+    { key: "sockets", label: "Sockets", type: "number", min: 0, max: 2 }
+];
+
+function emptyLoadoutItem() {
+    return {
+        name: "",
+        itemType: "",
+        itemPower: 0,
+        armor: 0,
+        life: 0,
+        defense: 0,
+        damage: 0,
+        power: "",
+        affixes: "",
+        tempers: "",
+        masterwork: 0,
+        sockets: 0
+    };
+}
+
+function loadoutFieldId(slotKey, fieldKey) {
+    return `loadout-${slotKey}-${fieldKey}`;
+}
+
+function renderEquipmentLoadout() {
+    const container = document.getElementById("equipmentLoadout");
+    if (!container) return;
+
+    container.innerHTML = "";
+
+    EQUIPMENT_SLOTS.forEach(slot => {
+        const card = document.createElement("details");
+        card.className = "equipment-slot-card";
+        card.dataset.loadoutSlot = slot.key;
+        card.open = slot.key === "chest" || slot.key === "mainHand";
+
+        const summary = document.createElement("summary");
+
+        const slotLabel = document.createElement("span");
+        slotLabel.textContent = slot.label;
+
+        const itemLabel = document.createElement("span");
+        itemLabel.className = "slot-summary-item";
+        itemLabel.id = `loadout-${slot.key}-summary`;
+        itemLabel.textContent = "Empty";
+
+        summary.append(slotLabel, itemLabel);
+
+        const fields = document.createElement("div");
+        fields.className = "equipment-slot-fields";
+
+        LOADOUT_FIELDS.forEach(field => {
+            const label = document.createElement("label");
+            if (field.wide) label.classList.add("wide");
+            label.append(document.createTextNode(field.label));
+
+            const input = field.type === "textarea"
+                ? document.createElement("textarea")
+                : document.createElement("input");
+
+            input.id = loadoutFieldId(slot.key, field.key);
+            input.dataset.slot = slot.key;
+            input.dataset.field = field.key;
+
+            if (field.type === "textarea") {
+                input.rows = 2;
+            } else {
+                input.type = field.type;
+            }
+
+            if (field.min !== undefined) input.min = field.min;
+            if (field.max !== undefined) input.max = field.max;
+
+            input.addEventListener("input", () => {
+                updateLoadoutSummary(slot.key);
+                updateLoadoutStatus();
+            });
+
+            label.append(input);
+            fields.append(label);
+        });
+
+        card.append(summary, fields);
+        container.append(card);
+    });
+
+    updateLoadoutStatus();
+}
+
+function getLoadoutItem(slotKey) {
+    const item = emptyLoadoutItem();
+
+    LOADOUT_FIELDS.forEach(field => {
+        const input = document.getElementById(loadoutFieldId(slotKey, field.key));
+        if (!input) return;
+
+        item[field.key] = field.type === "number"
+            ? numberValue(input)
+            : input.value.trim();
+    });
+
+    return item;
+}
+
+function getLoadoutFromForm() {
+    return Object.fromEntries(
+        EQUIPMENT_SLOTS.map(slot => [slot.key, getLoadoutItem(slot.key)])
+    );
+}
+
+function setLoadoutItem(slotKey, item = {}) {
+    const normalized = { ...emptyLoadoutItem(), ...item };
+
+    LOADOUT_FIELDS.forEach(field => {
+        const input = document.getElementById(loadoutFieldId(slotKey, field.key));
+        if (!input) return;
+        input.value = normalized[field.key] ?? (field.type === "number" ? 0 : "");
+    });
+
+    updateLoadoutSummary(slotKey);
+    updateLoadoutStatus();
+}
+
+function setLoadout(loadout = {}) {
+    EQUIPMENT_SLOTS.forEach(slot => {
+        setLoadoutItem(slot.key, loadout[slot.key] ?? {});
+    });
+}
+
+function updateLoadoutSummary(slotKey) {
+    const summary = document.getElementById(`loadout-${slotKey}-summary`);
+    const nameInput = document.getElementById(loadoutFieldId(slotKey, "name"));
+    if (!summary || !nameInput) return;
+
+    summary.textContent = nameInput.value.trim() || "Empty";
+}
+
+function updateLoadoutStatus() {
+    const status = document.getElementById("loadoutStatus");
+    if (!status) return;
+
+    const filled = EQUIPMENT_SLOTS.filter(slot => {
+        const input = document.getElementById(loadoutFieldId(slot.key, "name"));
+        return input?.value.trim();
+    }).length;
+
+    status.textContent = `${filled} / ${EQUIPMENT_SLOTS.length} slots filled`;
+}
+
+function loadChestFromLoadout() {
+    const chest = getLoadoutItem("chest");
+    setGear("equipped", chest);
+    resetGearVerdict();
+    markUnsaved();
+}
+
 
 const ids = [
     "characterName", "className", "realm", "level", "difficulty", "goal",
@@ -37,6 +219,7 @@ function getGear(prefix) {
 
 function getCharacterFromForm() {
     return {
+        schemaVersion: "0.2",
         profile: {
             name: el.characterName.value.trim(),
             className: el.className.value,
@@ -55,6 +238,7 @@ function getCharacterFromForm() {
             notes: el.buildNotes.value.trim()
         },
         gear: {
+            loadout: getLoadoutFromForm(),
             equipped: getGear("equipped"),
             candidate: getGear("candidate")
         },
@@ -91,7 +275,18 @@ function populateForm(character) {
     el.skills.value = (character.build?.skills ?? []).join(", ");
     el.buildNotes.value = character.build?.notes ?? "";
 
-    setGear("equipped", character.gear?.equipped ?? {});
+    const legacyEquippedChest = character.gear?.equipped ?? {};
+    const loadout = { ...(character.gear?.loadout ?? {}) };
+
+    if (!loadout.chest?.name && legacyEquippedChest?.name) {
+        loadout.chest = {
+            ...emptyLoadoutItem(),
+            ...legacyEquippedChest
+        };
+    }
+
+    setLoadout(loadout);
+    setGear("equipped", character.gear?.equipped ?? loadout.chest ?? {});
     setGear("candidate", character.gear?.candidate ?? {});
 
     el.paragonBoardName.value = character.paragon?.board ?? "Necromancer Starting Board";
@@ -290,6 +485,10 @@ function resetGearVerdict() {
 function equipCandidate() {
     const candidate = getGear("candidate");
     setGear("equipped", candidate);
+    setLoadoutItem("chest", {
+        ...emptyLoadoutItem(),
+        ...candidate
+    });
     prototypeState.candidateEquipped = true;
     document.getElementById("gearVerdict").textContent = "EQUIPPED";
     document.getElementById("gearReason").textContent =
@@ -535,6 +734,7 @@ function resetPrototype() {
             notes: ""
         },
         gear: {
+            loadout: {},
             equipped: {},
             candidate: {}
         },
@@ -560,6 +760,8 @@ function resetPrototype() {
     document.getElementById("confidenceBadge").textContent = "Confidence: --";
 }
 
+renderEquipmentLoadout();
+
 document.getElementById("loadDemoButton").addEventListener("click", () => {
     populateForm(DARKSTORM_DEMO_CHARACTER);
     analyzeBuild();
@@ -572,6 +774,7 @@ document.getElementById("importInput").addEventListener("change", event => {
     event.target.value = "";
 });
 document.getElementById("analyzeButton").addEventListener("click", analyzeBuild);
+document.getElementById("loadChestFromLoadoutButton").addEventListener("click", loadChestFromLoadout);
 document.getElementById("compareGearButton").addEventListener("click", () => {
     compareGear();
     analyzeBuild();
