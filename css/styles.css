@@ -166,6 +166,28 @@ button.danger {
     white-space: nowrap;
 }
 
+.warning-card {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 14px;
+    margin-bottom: 16px;
+    padding: 14px;
+    border: 1px solid #8b6f22;
+    border-radius: 10px;
+    background: #211c0c;
+    color: #f1df9d;
+}
+
+.warning-card[hidden] {
+    display: none;
+}
+
+.warning-card p {
+    margin-top: 4px;
+    color: #d9c982;
+}
+
 .form-grid {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -309,7 +331,8 @@ footer {
 
 @media (max-width: 800px) {
     .site-header,
-    .section-heading {
+    .section-heading,
+    .warning-card {
         align-items: flex-start;
         flex-direction: column;
     }
