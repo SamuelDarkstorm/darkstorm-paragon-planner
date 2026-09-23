@@ -115,9 +115,33 @@
                     <option value="unsure">I am not sure what to improve</option>
                 </select>
             </label>
-            <label class="full-width">Active Skills
-                <textarea id="skills" rows="3" placeholder="Separate skills with commas"></textarea>
-            </label>
+            <div class="full-width">
+                <div class="field-heading">
+                    <span>Active Skill Slots</span>
+                    <span id="skillSlotStatus" class="status-pill compact">0 / 6 filled</span>
+                </div>
+                <div class="skill-slot-grid">
+                    <label>Skill Slot 1
+                        <input id="skill1" type="text" placeholder="Skill name">
+                    </label>
+                    <label>Skill Slot 2
+                        <input id="skill2" type="text" placeholder="Skill name">
+                    </label>
+                    <label>Skill Slot 3
+                        <input id="skill3" type="text" placeholder="Skill name">
+                    </label>
+                    <label>Skill Slot 4
+                        <input id="skill4" type="text" placeholder="Skill name">
+                    </label>
+                    <label>Skill Slot 5
+                        <input id="skill5" type="text" placeholder="Skill name">
+                    </label>
+                    <label>Skill Slot 6
+                        <input id="skill6" type="text" placeholder="Skill name">
+                    </label>
+                </div>
+                <p class="muted field-help">Keep the skills in the same slots the character actually uses. Empty slots stay empty.</p>
+            </div>
             <label class="full-width">Build Notes
                 <textarea id="buildNotes" rows="3" placeholder="Anything Darkstorm should know about the build"></textarea>
             </label>
