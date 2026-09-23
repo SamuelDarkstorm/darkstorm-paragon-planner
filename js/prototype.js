@@ -784,7 +784,7 @@ function analyzeBuild() {
             summary: mismatch,
             why: "Darkstorm found character data that appears to belong to a different class.",
             whyNow: "Using incompatible class data would make later recommendations unreliable.",
-            whyNot: "Darkstorm should not guess how to translate skills, archetypes, or Paragon data between classes.",
+            whyNot: "Darkstorm should not guess how to translate skills or archetypes between classes.",
             changes: "Reset or correct the build snapshot so it matches the selected class, then analyze again.",
             confidence: 98
         };
