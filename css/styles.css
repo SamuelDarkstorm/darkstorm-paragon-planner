@@ -386,6 +386,68 @@ legend {
     font-weight: 700;
 }
 
+.screenshot-intake {
+    display: grid;
+    gap: 10px;
+    padding: 12px;
+    border: 1px dashed #465362;
+    border-radius: 9px;
+    background: #0f1419;
+    transition: border-color .15s ease, background .15s ease;
+}
+
+.screenshot-intake.drag-over {
+    border-color: var(--accent);
+    background: #111d17;
+}
+
+.screenshot-heading,
+.screenshot-actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.screenshot-preview {
+    min-height: 180px;
+    display: grid;
+    place-items: center;
+    overflow: hidden;
+    border: 1px solid #2f3946;
+    border-radius: 8px;
+    background: #090c0f;
+    padding: 10px;
+    text-align: center;
+}
+
+.screenshot-preview img {
+    display: block;
+    width: 100%;
+    max-height: 520px;
+    object-fit: contain;
+    border-radius: 6px;
+}
+
+.screenshot-preview img[hidden] {
+    display: none;
+}
+
+.screenshot-help {
+    font-size: .8rem;
+}
+
+.screenshot-intake.has-image {
+    border-style: solid;
+    border-color: #355f4c;
+}
+
+.screenshot-actions .button,
+.screenshot-actions button {
+    min-height: 44px;
+}
+
 .action-row {
     margin-top: 14px;
 }
@@ -457,6 +519,16 @@ footer {
 
     .full-width {
         grid-column: auto;
+    }
+
+    .screenshot-preview {
+        min-height: 150px;
+    }
+
+    .screenshot-actions .button,
+    .screenshot-actions button {
+        width: 100%;
+        text-align: center;
     }
 
     #boardCanvas {
