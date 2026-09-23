@@ -210,7 +210,7 @@ const ids = [
     "candidateName", "candidateItemType", "candidateItemPower", "candidateArmor", "candidateLife",
     "candidateDefense", "candidateDamage", "candidatePower", "candidateAffixes", "candidateTempers",
     "candidateMasterwork", "candidateSockets",
-    "paragonBoardName", "glyphName", "glyphLevel", "feedbackNotes"
+    "feedbackNotes"
 ];
 
 const el = Object.fromEntries(ids.map(id => [id, document.getElementById(id)]));
@@ -299,11 +299,6 @@ function getCharacterFromForm() {
             equipped: getGear("equipped"),
             candidate: getGear("candidate")
         },
-        paragon: {
-            board: el.paragonBoardName.value.trim(),
-            glyph: el.glyphName.value.trim(),
-            glyphLevel: numberValue(el.glyphLevel)
-        },
         feedback: {
             result: prototypeState.feedbackResult,
             notes: el.feedbackNotes.value.trim()
@@ -355,10 +350,6 @@ function populateForm(character) {
     setGear("equipped", character.gear?.equipped ?? selectedEquipped);
     setGear("candidate", character.gear?.candidate ?? {});
 
-    el.paragonBoardName.value = character.paragon?.board ?? "Necromancer Starting Board";
-    el.glyphName.value = character.paragon?.glyph ?? "";
-    el.glyphLevel.value = character.paragon?.glyphLevel ?? 1;
-
     prototypeState.feedbackResult = character.feedback?.result ?? null;
     el.feedbackNotes.value = character.feedback?.notes ?? "";
     prototypeState.lastGearComparison = null;
@@ -384,9 +375,7 @@ const NECROMANCER_MARKERS = [
     "minion necromancer",
     "raise skeleton",
     "corpse tendrils",
-    "decrepify",
-    "sacrificial",
-    "necromancer starting board"
+    "decrepify"
 ];
 
 const MINION_SKILL_MARKERS = [
@@ -515,9 +504,7 @@ function detectClassMismatch(character) {
     const selectedClass = character.profile.className;
     const snapshotText = [
         character.build.archetype,
-        ...activeSkillsFor(character),
-        character.paragon.board,
-        character.paragon.glyph
+        ...activeSkillsFor(character)
     ].join(" ").toLowerCase();
 
     const namedOtherClass = KNOWN_CLASSES.find(className =>
@@ -570,10 +557,6 @@ function resetBuildSnapshotForClass() {
     });
     updateSkillSlotStatus();
     el.buildNotes.value = "";
-    el.paragonBoardName.value =
-        selectedClass === "Necromancer" ? "Necromancer Starting Board" : "";
-    el.glyphName.value = "";
-    el.glyphLevel.value = 1;
 
     prototypeState.feedbackResult = null;
     prototypeState.lastGearComparison = null;
@@ -692,8 +675,8 @@ function recommendationFor(character) {
 
     if (feedback === "better" && prototypeState.candidateEquipped) {
         return {
-            title: "Keep the gear change and inspect Paragon next.",
-            summary: "The gear test produced a positive result, so Darkstorm moves to the next major decision surface.",
+            title: "Keep the gear change and reassess the build.",
+            summary: "The gear test produced a positive result, so Darkstorm can reassess the character before proposing another change.",
             why: "The candidate item improved the player's reported experience.",
             whyNow: "The gear question has enough evidence to stop consuming attention for the moment.",
             whyNot: "Another immediate gear swap would add noise before the current improvement is established.",
@@ -708,7 +691,7 @@ function recommendationFor(character) {
             summary: "Darkstorm found a candidate that better matches the current goal using the prototype heuristic.",
             why: "The candidate scores meaningfully better for the selected priority.",
             whyNow: "It is a reversible change with a clear before-and-after test.",
-            whyNot: "Changing skills or Paragon at the same time would make the result harder to interpret.",
+            whyNot: "Changing skills at the same time would make the result harder to interpret.",
             changes: "If the candidate feels worse in play, revert it regardless of the prototype score.",
             confidence: 82
         };
@@ -722,7 +705,7 @@ function recommendationFor(character) {
                 why: "The active skill structure already commits multiple slots to the minion package, so the safer first test is improving the player's durability while preserving that core.",
                 whyNow: "Changing the skill package and defensive setup at the same time would make it harder to tell which change solved the reported survivability problem.",
                 whyNot: "A broad offensive rebuild is lower priority while the player is still reporting deaths as the limiting problem.",
-                changes: "If survivability becomes stable across repeated runs, Darkstorm can shift attention toward clear speed, damage, or Paragon.",
+                changes: "If survivability becomes stable across repeated runs, Darkstorm can shift attention toward clear speed, damage, or another controlled build change.",
                 confidence: 84
             };
         }
@@ -744,7 +727,7 @@ function recommendationFor(character) {
             summary: "The player identified damage as the current bottleneck.",
             why: "The build problem is explicitly offensive rather than defensive.",
             whyNow: "A controlled gear comparison is faster to validate than changing several systems at once.",
-            whyNot: "Paragon and skill changes should wait until a simpler reversible test is exhausted.",
+            whyNot: "Skill changes should wait until a simpler reversible test is exhausted.",
             changes: "If damage improves but survivability collapses, the priority becomes balanced rather than pure damage.",
             confidence: 73
         };
@@ -810,7 +793,7 @@ function analyzeBuild() {
             title: "Verify the build identity before optimizing.",
             summary: identity.warning,
             why: "Darkstorm now uses the structured skill slots as evidence instead of trusting the typed archetype by itself.",
-            whyNow: "If the archetype and active skills disagree, gear or Paragon recommendations could optimize the wrong build.",
+            whyNow: "If the archetype and active skills disagree, gear recommendations could optimize the wrong build.",
             whyNot: "Darkstorm should not silently assume the typed build name is correct when the skill bar provides conflicting evidence.",
             changes: "Correct the archetype or active skill slots, then analyze again.",
             confidence: 94
@@ -937,11 +920,6 @@ function resetPrototype() {
             equipped: {},
             candidate: {}
         },
-        paragon: {
-            board: "Necromancer Starting Board",
-            glyph: "",
-            glyphLevel: 1
-        },
         feedback: {
             result: null,
             notes: ""
@@ -951,7 +929,7 @@ function resetPrototype() {
     document.getElementById("recommendationTitle").textContent =
         "Load a character and analyze the build.";
     document.getElementById("recommendationSummary").textContent =
-        "Darkstorm will use the character, gear, problem, goal, Paragon context, and test feedback below.";
+        "Darkstorm will use the character, build, gear, goal, and test feedback below.";
     document.getElementById("whyText").textContent = "Waiting for analysis.";
     document.getElementById("whyNowText").textContent = "Waiting for analysis.";
     document.getElementById("whyNotText").textContent = "Waiting for analysis.";
@@ -1004,7 +982,7 @@ document.getElementById("resetSnapshotButton").addEventListener(
 );
 
 el.className.addEventListener("change", updateClassAwareness);
-["archetype", "paragonBoardName", "glyphName", ...SKILL_SLOT_IDS].forEach(id => {
+["archetype", ...SKILL_SLOT_IDS].forEach(id => {
     el[id].addEventListener("input", updateClassAwareness);
 });
 
