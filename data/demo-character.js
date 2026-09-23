@@ -182,11 +182,6 @@ const DARKSTORM_DEMO_CHARACTER = {
             damage: 0
         }
     },
-    paragon: {
-        board: "Necromancer Starting Board",
-        glyph: "Sacrificial",
-        glyphLevel: 1
-    },
     feedback: {
         result: null,
         notes: ""
