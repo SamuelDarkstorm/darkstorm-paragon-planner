@@ -14,7 +14,7 @@ const DARKSTORM_DEMO_CHARACTER = {
     build: {
         archetype: "Minion Necromancer",
         problem: "survivability",
-        skills: [
+        skillSlots: [
             "Raise Skeleton",
             "Golem",
             "Corpse Tendrils",
