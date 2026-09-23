@@ -271,8 +271,12 @@ function screenshotElements(prefix) {
         preview: document.getElementById(`${prefix}ScreenshotPreview`),
         empty: document.getElementById(`${prefix}ScreenshotEmpty`),
         remove: document.getElementById(`${prefix}ScreenshotRemove`),
+        read: document.getElementById(`${prefix}ScreenshotRead`),
         status: document.getElementById(`${prefix}ScreenshotStatus`),
-        dropZone: document.getElementById(`${prefix}ScreenshotDropZone`)
+        dropZone: document.getElementById(`${prefix}ScreenshotDropZone`),
+        readout: document.getElementById(`${prefix}ScreenshotReadout`),
+        readoutText: document.getElementById(`${prefix}ScreenshotReadoutText`),
+        ocrText: document.getElementById(`${prefix}ScreenshotOcrText`)
     };
 }
 
@@ -280,6 +284,15 @@ function formatScreenshotSize(bytes = 0) {
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function resetScreenshotReadout(prefix) {
+    const ui = screenshotElements(prefix);
+    if (!ui.readout) return;
+
+    ui.readout.hidden = true;
+    ui.readoutText.textContent = "";
+    ui.ocrText.textContent = "";
 }
 
 function resetScreenshotControls(prefix) {
@@ -291,8 +304,11 @@ function resetScreenshotControls(prefix) {
     ui.preview.hidden = true;
     ui.empty.hidden = false;
     ui.remove.hidden = true;
+    ui.read.disabled = true;
+    ui.read.textContent = "Read Screenshot";
     ui.status.textContent = "Temporary";
-    ui.dropZone.classList.remove("has-image", "drag-over");
+    ui.dropZone.classList.remove("has-image", "drag-over", "reading");
+    resetScreenshotReadout(prefix);
 }
 
 function renderItemScreenshot(prefix) {
@@ -309,6 +325,8 @@ function renderItemScreenshot(prefix) {
     ui.preview.hidden = false;
     ui.empty.hidden = true;
     ui.remove.hidden = false;
+    ui.read.disabled = false;
+    ui.read.textContent = "Read Screenshot";
     ui.status.textContent =
         `${screenshot.fileName} · ${formatScreenshotSize(screenshot.size)}`;
     ui.dropZone.classList.add("has-image");
@@ -340,6 +358,7 @@ function setItemScreenshot(prefix, file) {
     clearItemScreenshot(prefix);
 
     prototypeState.screenshots[prefix] = {
+        file,
         url: URL.createObjectURL(file),
         fileName: file.name || "Screenshot",
         size: file.size || 0,
@@ -364,6 +383,330 @@ function promoteCandidateScreenshotToEquipped() {
     resetScreenshotControls("candidate");
 }
 
+function integerFromOcr(value) {
+    const parsed = Number(String(value ?? "").replace(/[^0-9]/g, ""));
+    return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function cleanedOcrLines(text) {
+    return String(text ?? "")
+        .split(/\r?\n/)
+        .map(line => line
+            .replace(/[•●▪◦]/g, "+")
+            .replace(/\s+/g, " ")
+            .trim())
+        .filter(Boolean);
+}
+
+function itemTypeFromSlot(slotKey) {
+    const map = {
+        helm: "Helm",
+        chest: "Chest Armor",
+        gloves: "Gloves",
+        pants: "Pants",
+        boots: "Boots",
+        amulet: "Amulet",
+        ring1: "Ring",
+        ring2: "Ring",
+        mainHand: "Main Hand",
+        offHand: "Off Hand"
+    };
+    return map[slotKey] ?? "Item";
+}
+
+function parseItemName(lines, rarityIndex) {
+    if (rarityIndex <= 0) return "";
+
+    const blacklist = /^(equipped|character|stats|materials|no title|weapon damage|toughness|strength|intelligence|willpower|dexterity|equipment|dungeon keys)$/i;
+    const candidates = [];
+
+    for (let index = rarityIndex - 1; index >= 0 && candidates.length < 4; index -= 1) {
+        const line = lines[index];
+
+        if (blacklist.test(line)) {
+            if (candidates.length) break;
+            continue;
+        }
+
+        if (/\d|%|\[|\]|:/.test(line)) {
+            if (candidates.length) break;
+            continue;
+        }
+
+        if (!/^[A-Za-z][A-Za-z'’& -]{1,40}$/.test(line)) {
+            if (candidates.length) break;
+            continue;
+        }
+
+        candidates.unshift(line);
+    }
+
+    return candidates.join(" ").trim();
+}
+
+function parseDiabloItemText(rawText, slotKey) {
+    const lines = cleanedOcrLines(rawText);
+    const joined = lines.join("\n");
+    const fields = { ...emptyLoadoutItem() };
+    const detected = [];
+    const inferred = [];
+
+    const rarityIndex = lines.findIndex(line =>
+        /\b(?:legendary|unique|rare|magic)\b/i.test(line) &&
+        /\b(?:helm|chest|armor|gloves|pants|boots|amulet|ring|sword|axe|mace|dagger|wand|scythe|focus|shield|staff|polearm|totem)\b/i.test(line)
+    );
+
+    if (rarityIndex >= 0) {
+        const rarityLine = lines[rarityIndex];
+        const typeMatch = rarityLine.match(
+            /\b(?:legendary|unique|rare|magic)\s+(.+?)(?:\s*$)/i
+        );
+
+        if (typeMatch?.[1]) {
+            const possibleType = typeMatch[1]
+                .replace(/[^A-Za-z -]/g, "")
+                .trim();
+
+            if (possibleType && possibleType.length <= 28) {
+                fields.itemType = possibleType;
+                detected.push("Item type");
+            }
+        }
+
+        const itemName = parseItemName(lines, rarityIndex);
+        if (itemName) {
+            fields.name = itemName;
+            detected.push("Name");
+        }
+    }
+
+    if (!fields.itemType) {
+        fields.itemType = itemTypeFromSlot(slotKey);
+        inferred.push("Item type from comparison slot");
+    }
+
+    const itemPowerMatch = joined.match(/\b([0-9OIlS,]{2,5})\s*Item\s*Power\b/i);
+    if (itemPowerMatch) {
+        const value = integerFromOcr(
+            itemPowerMatch[1]
+                .replace(/[Oo]/g, "0")
+                .replace(/[Il]/g, "1")
+                .replace(/S/g, "5")
+        );
+        if (value >= 100 && value <= 2000) {
+            fields.itemPower = value;
+            detected.push("Item power");
+        }
+    }
+
+    const armorMatch = joined.match(/\b([0-9OIlS,]{2,6})\s*Armor\b/i);
+    if (armorMatch) {
+        const value = integerFromOcr(
+            armorMatch[1]
+                .replace(/[Oo]/g, "0")
+                .replace(/[Il]/g, "1")
+                .replace(/S/g, "5")
+        );
+        if (value > 0 && value < 100000) {
+            fields.armor = value;
+            detected.push("Armor");
+        }
+    }
+
+    const lifeMatch = joined.match(/[+]?\s*([0-9OIlS,]{2,7})\s*Maximum\s+Life\b/i);
+    if (lifeMatch) {
+        const value = integerFromOcr(
+            lifeMatch[1]
+                .replace(/[Oo]/g, "0")
+                .replace(/[Il]/g, "1")
+                .replace(/S/g, "5")
+        );
+        if (value > 0 && value < 1000000) {
+            fields.life = value;
+            detected.push("Maximum Life");
+        }
+    }
+
+    if (slotKey === "mainHand" || slotKey === "offHand") {
+        const damageMatch = joined.match(/\b([0-9OIlS,]{2,7})\s+(?:Weapon\s+)?Damage\b/i);
+        if (damageMatch) {
+            const value = integerFromOcr(
+                damageMatch[1]
+                    .replace(/[Oo]/g, "0")
+                    .replace(/[Il]/g, "1")
+                    .replace(/S/g, "5")
+            );
+            if (value > 0 && value < 1000000) {
+                fields.damage = value;
+                detected.push("Damage");
+            }
+        }
+    }
+
+    const itemPowerIndex = lines.findIndex(line => /Item\s*Power/i.test(line));
+    const armorIndex = lines.findIndex(line => /\bArmor\b/i.test(line));
+    const damageIndex = lines.findIndex(line => /(?:Weapon\s+)?Damage/i.test(line));
+    const affixStart = Math.max(rarityIndex, itemPowerIndex, armorIndex, damageIndex) + 1;
+    const stopPattern = /\b(?:imprinted|aspect|empty socket|requires level|sell value|durability|mark as junk|compare|drop)\b/i;
+    const affixPattern = /\b(?:intelligence|strength|dexterity|willpower|maximum life|armor|fortify|healing|thorns|critical|attack speed|movement speed|cooldown|resource|resistance|damage reduction|damage|life|ranks?|lucky hit|essence|vulnerable|minion|golem|skeleton)\b/i;
+    const affixLines = [];
+
+    for (let index = Math.max(0, affixStart); index < lines.length; index += 1) {
+        const line = lines[index];
+        if (stopPattern.test(line)) break;
+
+        if (affixPattern.test(line) && /\d|%|\+/.test(line)) {
+            affixLines.push(line);
+        }
+
+        if (affixLines.length >= 8) break;
+    }
+
+    if (affixLines.length) {
+        fields.affixes = [...new Set(affixLines)].join("\n");
+        detected.push("Affixes");
+    }
+
+    const powerStart = lines.findIndex(line => /\b(?:imprinted|aspect)\s*:/i.test(line));
+    if (powerStart >= 0) {
+        const powerLines = [];
+
+        for (let index = powerStart; index < lines.length && powerLines.length < 6; index += 1) {
+            const line = lines[index];
+
+            if (
+                index > powerStart &&
+                /\b(?:empty socket|requires level|sell value|durability|equip|compare|mark as junk|drop)\b/i.test(line)
+            ) {
+                break;
+            }
+
+            powerLines.push(line);
+        }
+
+        const power = powerLines
+            .join(" ")
+            .replace(/^.*?\b(?:imprinted|aspect)\s*:\s*/i, "")
+            .trim();
+
+        if (power.length >= 12) {
+            fields.power = power;
+            detected.push("Aspect / unique power");
+        }
+    }
+
+    const masterworkMatch = joined.match(/\bMasterwork(?:ed)?[^0-9]{0,12}(\d{1,2})(?:\s*\/\s*12)?/i);
+    if (masterworkMatch) {
+        const value = Number(masterworkMatch[1]);
+        if (value >= 0 && value <= 12) {
+            fields.masterwork = value;
+            detected.push("Masterwork");
+        }
+    }
+
+    const socketMatches = joined.match(/\bEmpty\s+Socket\b/gi) ?? [];
+    if (socketMatches.length) {
+        fields.sockets = Math.min(2, socketMatches.length);
+        detected.push("Sockets");
+    }
+
+    return {
+        fields,
+        detected: [...new Set(detected)],
+        inferred,
+        rawText: String(rawText ?? "").trim()
+    };
+}
+
+function applyScreenshotExtraction(prefix, extraction, ocrConfidence) {
+    const ui = screenshotElements(prefix);
+    const detectedCount = extraction.detected.length;
+
+    ui.readout.hidden = false;
+    ui.ocrText.textContent = extraction.rawText || "No text detected.";
+
+    if (detectedCount < 2) {
+        ui.readoutText.textContent =
+            `Darkstorm could not confidently map enough item data to replace the current fields. OCR text confidence: ${Math.round(ocrConfidence)}%. Review the detected text and enter the item manually for now.`;
+        return false;
+    }
+
+    setGear(prefix, extraction.fields);
+    prototypeState.lastGearComparison = null;
+    prototypeState.candidateEquipped = false;
+    resetGearVerdict();
+    markUnsaved();
+
+    const inferredText = extraction.inferred.length
+        ? ` ${extraction.inferred.join(", ")} was inferred rather than read.`
+        : "";
+
+    ui.readoutText.textContent =
+        `Detected: ${extraction.detected.join(", ")}. OCR text confidence: ${Math.round(ocrConfidence)}%. Fields Darkstorm could not confidently map were left blank or zero.${inferredText} Review the fields before Compare Gear.`;
+
+    return true;
+}
+
+async function readItemScreenshot(prefix) {
+    const screenshot = prototypeState.screenshots[prefix];
+    const ui = screenshotElements(prefix);
+
+    if (!screenshot?.file) {
+        window.alert("Choose an item screenshot first.");
+        return;
+    }
+
+    if (!window.Tesseract?.recognize) {
+        ui.readout.hidden = false;
+        ui.readoutText.textContent =
+            "The screenshot reader did not load. Check the internet connection, refresh the page, and try again.";
+        return;
+    }
+
+    ui.read.disabled = true;
+    ui.read.textContent = "Reading…";
+    ui.remove.disabled = true;
+    ui.dropZone.classList.add("reading");
+    resetScreenshotReadout(prefix);
+
+    try {
+        const result = await window.Tesseract.recognize(
+            screenshot.file,
+            "eng",
+            {
+                logger: message => {
+                    if (message.status === "recognizing text") {
+                        const percent = Math.round((message.progress ?? 0) * 100);
+                        ui.status.textContent = `Reading ${percent}%`;
+                    }
+                }
+            }
+        );
+
+        const rawText = result?.data?.text ?? "";
+        const ocrConfidence = Number(result?.data?.confidence ?? 0);
+        const extraction = parseDiabloItemText(
+            rawText,
+            el.comparisonSlot.value
+        );
+
+        applyScreenshotExtraction(prefix, extraction, ocrConfidence);
+        ui.status.textContent = `OCR ${Math.round(ocrConfidence)}% · review`;
+    } catch (error) {
+        console.error("Darkstorm screenshot read failed:", error);
+        ui.readout.hidden = false;
+        ui.readoutText.textContent =
+            "Darkstorm could not read this screenshot. Try a tighter crop around the item card or enter the item manually.";
+        ui.ocrText.textContent = "";
+        ui.status.textContent = "Read failed";
+    } finally {
+        ui.read.disabled = false;
+        ui.read.textContent = "Read Screenshot";
+        ui.remove.disabled = false;
+        ui.dropZone.classList.remove("reading");
+    }
+}
+
 function wireScreenshotIntake() {
     SCREENSHOT_PREFIXES.forEach(prefix => {
         const ui = screenshotElements(prefix);
@@ -371,6 +714,10 @@ function wireScreenshotIntake() {
 
         ui.input.addEventListener("change", event => {
             setItemScreenshot(prefix, event.target.files?.[0]);
+        });
+
+        ui.read.addEventListener("click", () => {
+            readItemScreenshot(prefix);
         });
 
         ui.remove.addEventListener("click", () => {
