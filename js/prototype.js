@@ -199,9 +199,11 @@ function loadSelectedSlotFromLoadout() {
 }
 
 
+const SKILL_SLOT_IDS = ["skill1", "skill2", "skill3", "skill4", "skill5", "skill6"];
+
 const ids = [
     "characterName", "className", "realm", "level", "difficulty", "goal",
-    "archetype", "problem", "skills", "buildNotes", "comparisonSlot",
+    "archetype", "problem", ...SKILL_SLOT_IDS, "buildNotes", "comparisonSlot",
     "equippedName", "equippedItemType", "equippedItemPower", "equippedArmor", "equippedLife",
     "equippedDefense", "equippedDamage", "equippedPower", "equippedAffixes", "equippedTempers",
     "equippedMasterwork", "equippedSockets",
@@ -212,6 +214,45 @@ const ids = [
 ];
 
 const el = Object.fromEntries(ids.map(id => [id, document.getElementById(id)]));
+
+function getSkillSlotsFromForm() {
+    return SKILL_SLOT_IDS.map(id => el[id].value.trim());
+}
+
+function activeSkillsFor(character) {
+    const structuredSlots = character.build?.skillSlots;
+
+    if (Array.isArray(structuredSlots)) {
+        return structuredSlots
+            .map(skill => String(skill ?? "").trim())
+            .filter(Boolean);
+    }
+
+    // Backward compatibility for Prototype 0.1/early 0.2 exports.
+    return (character.build?.skills ?? [])
+        .map(skill => String(skill ?? "").trim())
+        .filter(Boolean);
+}
+
+function setSkillSlots(character) {
+    const source = Array.isArray(character.build?.skillSlots)
+        ? character.build.skillSlots
+        : (character.build?.skills ?? []);
+
+    SKILL_SLOT_IDS.forEach((id, index) => {
+        el[id].value = source[index] ?? "";
+    });
+
+    updateSkillSlotStatus();
+}
+
+function updateSkillSlotStatus() {
+    const status = document.getElementById("skillSlotStatus");
+    if (!status) return;
+
+    const filled = getSkillSlotsFromForm().filter(Boolean).length;
+    status.textContent = `${filled} / ${SKILL_SLOT_IDS.length} filled`;
+}
 
 function numberValue(input) {
     const value = Number(input.value);
@@ -237,7 +278,7 @@ function getGear(prefix) {
 
 function getCharacterFromForm() {
     return {
-        schemaVersion: "0.2",
+        schemaVersion: "0.2b",
         profile: {
             name: el.characterName.value.trim(),
             className: el.className.value,
@@ -249,10 +290,7 @@ function getCharacterFromForm() {
         build: {
             archetype: el.archetype.value.trim(),
             problem: el.problem.value,
-            skills: el.skills.value
-                .split(",")
-                .map(skill => skill.trim())
-                .filter(Boolean),
+            skillSlots: getSkillSlotsFromForm(),
             notes: el.buildNotes.value.trim()
         },
         gear: {
@@ -298,7 +336,7 @@ function populateForm(character) {
 
     el.archetype.value = character.build?.archetype ?? "";
     el.problem.value = character.build?.problem ?? "unsure";
-    el.skills.value = (character.build?.skills ?? []).join(", ");
+    setSkillSlots(character);
     el.buildNotes.value = character.build?.notes ?? "";
 
     const legacyEquippedChest = character.gear?.equipped ?? {};
@@ -379,7 +417,7 @@ function detectClassMismatch(character) {
     const selectedClass = character.profile.className;
     const snapshotText = [
         character.build.archetype,
-        ...character.build.skills,
+        ...activeSkillsFor(character),
         character.paragon.board,
         character.paragon.glyph
     ].join(" ").toLowerCase();
@@ -428,7 +466,10 @@ function resetBuildSnapshotForClass() {
 
     el.archetype.value = "";
     el.problem.value = "unsure";
-    el.skills.value = "";
+    SKILL_SLOT_IDS.forEach(id => {
+        el[id].value = "";
+    });
+    updateSkillSlotStatus();
     el.buildNotes.value = "";
     el.paragonBoardName.value =
         selectedClass === "Necromancer" ? "Necromancer Starting Board" : "";
@@ -764,7 +805,7 @@ function resetPrototype() {
         build: {
             archetype: "",
             problem: "unsure",
-            skills: [],
+            skillSlots: ["", "", "", "", "", ""],
             notes: ""
         },
         gear: {
@@ -840,8 +881,12 @@ document.getElementById("resetSnapshotButton").addEventListener(
 );
 
 el.className.addEventListener("change", updateClassAwareness);
-["archetype", "skills", "paragonBoardName", "glyphName"].forEach(id => {
+["archetype", "paragonBoardName", "glyphName", ...SKILL_SLOT_IDS].forEach(id => {
     el[id].addEventListener("input", updateClassAwareness);
+});
+
+SKILL_SLOT_IDS.forEach(id => {
+    el[id].addEventListener("input", updateSkillSlotStatus);
 });
 
 document.querySelectorAll("input, select, textarea").forEach(input => {
