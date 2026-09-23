@@ -223,7 +223,7 @@
         </div>
 
         <p class="muted section-intro">
-            Add an in-game screenshot to either side as a visual reference. On a computer you can choose or drag an image; on a tablet or phone you can choose one from Photos or Files. Screenshot reading will be added next, so the item fields remain editable for confirmation.
+            Add an in-game screenshot to either side, then choose <strong>Read Screenshot</strong>. Darkstorm will try to extract only the fields it recognizes with enough confidence and leave uncertain data blank or zero for you to review.
         </p>
 
         <div class="gear-grid">
@@ -242,9 +242,18 @@
                     <div class="screenshot-actions">
                         <label class="button secondary" for="equippedScreenshotInput">Choose Screenshot</label>
                         <input id="equippedScreenshotInput" type="file" accept="image/*" hidden>
+                        <button id="equippedScreenshotRead" type="button" disabled>Read Screenshot</button>
                         <button id="equippedScreenshotRemove" type="button" class="secondary" hidden>Remove</button>
                     </div>
-                    <p class="muted screenshot-help">The screenshot stays in this browser tab for comparison and is not saved or exported yet.</p>
+                    <div id="equippedScreenshotReadout" class="screenshot-readout" hidden>
+                        <strong>Extraction review</strong>
+                        <p id="equippedScreenshotReadoutText"></p>
+                        <details>
+                            <summary>Show detected text</summary>
+                            <pre id="equippedScreenshotOcrText"></pre>
+                        </details>
+                    </div>
+                    <p class="muted screenshot-help">Reading happens in your browser for this prototype. The screenshot itself stays temporary and is not saved or exported.</p>
                 </div>
 
                 <label>Name <input id="equippedName" type="text"></label>
@@ -276,9 +285,18 @@
                     <div class="screenshot-actions">
                         <label class="button secondary" for="candidateScreenshotInput">Choose Screenshot</label>
                         <input id="candidateScreenshotInput" type="file" accept="image/*" hidden>
+                        <button id="candidateScreenshotRead" type="button" disabled>Read Screenshot</button>
                         <button id="candidateScreenshotRemove" type="button" class="secondary" hidden>Remove</button>
                     </div>
-                    <p class="muted screenshot-help">The screenshot stays in this browser tab for comparison and is not saved or exported yet.</p>
+                    <div id="candidateScreenshotReadout" class="screenshot-readout" hidden>
+                        <strong>Extraction review</strong>
+                        <p id="candidateScreenshotReadoutText"></p>
+                        <details>
+                            <summary>Show detected text</summary>
+                            <pre id="candidateScreenshotOcrText"></pre>
+                        </details>
+                    </div>
+                    <p class="muted screenshot-help">Reading happens in your browser for this prototype. The screenshot itself stays temporary and is not saved or exported.</p>
                 </div>
 
                 <label>Name <input id="candidateName" type="text"></label>
@@ -333,6 +351,7 @@
     Darkstorm Prototype 0.2D · Cross-device screenshot intake, functional first.
 </footer>
 
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <script src="data/demo-character.js"></script>
 <script src="js/prototype.js"></script>
 </body>
