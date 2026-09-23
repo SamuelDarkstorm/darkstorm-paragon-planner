@@ -28,8 +28,7 @@
     <a href="#mission-control">3. Mission Control</a>
     <a href="#loadout">4. Loadout</a>
     <a href="#gear">5. Compare</a>
-    <a href="#paragon">6. Paragon</a>
-    <a href="#feedback">7. Test</a>
+    <a href="#feedback">6. Test</a>
 </nav>
 
 <main class="prototype-shell">
@@ -170,7 +169,7 @@
         <div class="priority-card">
             <p class="muted">Current Priority</p>
             <h3 id="recommendationTitle">Load a character and analyze the build.</h3>
-            <p id="recommendationSummary">Darkstorm will use the character, gear, problem, goal, Paragon context, and test feedback below.</p>
+            <p id="recommendationSummary">Darkstorm will use the character, build, gear, goal, and test feedback below.</p>
         </div>
 
         <div class="explanation-grid">
@@ -265,37 +264,10 @@
         <p id="gearReason" class="result-text">Enter two items or load the demo character.</p>
     </section>
 
-    <section class="panel" id="paragon">
-        <div class="section-heading">
-            <div>
-                <p class="step-label">Step 6</p>
-                <h2>Paragon Lab</h2>
-            </div>
-            <span class="status-pill">Existing planner engine</span>
-        </div>
-
-        <div class="form-grid paragon-meta">
-            <label>Board
-                <input id="paragonBoardName" type="text" value="Necromancer Starting Board">
-            </label>
-            <label>Glyph
-                <input id="glyphName" type="text" placeholder="Glyph name">
-            </label>
-            <label>Glyph Level
-                <input id="glyphLevel" type="number" min="1" max="100" value="1">
-            </label>
-        </div>
-
-        <div id="planner">
-            <canvas id="boardCanvas"></canvas>
-        </div>
-        <p class="muted">The board remains the existing interactive prototype. Click a highlighted legal node to extend the path; click the most recent selected node to undo it.</p>
-    </section>
-
     <section class="panel" id="feedback">
         <div class="section-heading">
             <div>
-                <p class="step-label">Step 7</p>
+                <p class="step-label">Step 6</p>
                 <h2>Test Feedback</h2>
             </div>
             <span id="feedbackStatus" class="status-pill">No test result</span>
@@ -321,9 +293,7 @@
     Darkstorm Prototype 0.2 · Richer character data, functional first.
 </footer>
 
-<script src="js/constants.js"></script>
 <script src="data/demo-character.js"></script>
-<script src="js/app.js"></script>
 <script src="js/prototype.js"></script>
 </body>
 </html>
