@@ -7,7 +7,11 @@ const STORAGE_KEY = "darkstorm-prototype-v0.2";
 const prototypeState = {
     feedbackResult: null,
     lastGearComparison: null,
-    candidateEquipped: false
+    candidateEquipped: false,
+    screenshots: {
+        equipped: null,
+        candidate: null
+    }
 };
 
 const EQUIPMENT_SLOTS = [
@@ -259,6 +263,149 @@ function numberValue(input) {
     return Number.isFinite(value) ? value : 0;
 }
 
+const SCREENSHOT_PREFIXES = ["equipped", "candidate"];
+
+function screenshotElements(prefix) {
+    return {
+        input: document.getElementById(`${prefix}ScreenshotInput`),
+        preview: document.getElementById(`${prefix}ScreenshotPreview`),
+        empty: document.getElementById(`${prefix}ScreenshotEmpty`),
+        remove: document.getElementById(`${prefix}ScreenshotRemove`),
+        status: document.getElementById(`${prefix}ScreenshotStatus`),
+        dropZone: document.getElementById(`${prefix}ScreenshotDropZone`)
+    };
+}
+
+function formatScreenshotSize(bytes = 0) {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function resetScreenshotControls(prefix) {
+    const ui = screenshotElements(prefix);
+    if (!ui.input) return;
+
+    ui.input.value = "";
+    ui.preview.removeAttribute("src");
+    ui.preview.hidden = true;
+    ui.empty.hidden = false;
+    ui.remove.hidden = true;
+    ui.status.textContent = "Temporary";
+    ui.dropZone.classList.remove("has-image", "drag-over");
+}
+
+function renderItemScreenshot(prefix) {
+    const screenshot = prototypeState.screenshots[prefix];
+    const ui = screenshotElements(prefix);
+    if (!ui.input) return;
+
+    if (!screenshot) {
+        resetScreenshotControls(prefix);
+        return;
+    }
+
+    ui.preview.src = screenshot.url;
+    ui.preview.hidden = false;
+    ui.empty.hidden = true;
+    ui.remove.hidden = false;
+    ui.status.textContent =
+        `${screenshot.fileName} · ${formatScreenshotSize(screenshot.size)}`;
+    ui.dropZone.classList.add("has-image");
+}
+
+function clearItemScreenshot(prefix, { revoke = true } = {}) {
+    const screenshot = prototypeState.screenshots[prefix];
+
+    if (revoke && screenshot?.url) {
+        URL.revokeObjectURL(screenshot.url);
+    }
+
+    prototypeState.screenshots[prefix] = null;
+    resetScreenshotControls(prefix);
+}
+
+function clearAllItemScreenshots() {
+    SCREENSHOT_PREFIXES.forEach(prefix => clearItemScreenshot(prefix));
+}
+
+function setItemScreenshot(prefix, file) {
+    if (!file) return;
+
+    if (file.type && !file.type.startsWith("image/")) {
+        window.alert("Please choose an image file for the item screenshot.");
+        return;
+    }
+
+    clearItemScreenshot(prefix);
+
+    prototypeState.screenshots[prefix] = {
+        url: URL.createObjectURL(file),
+        fileName: file.name || "Screenshot",
+        size: file.size || 0,
+        type: file.type || "image"
+    };
+
+    renderItemScreenshot(prefix);
+}
+
+function promoteCandidateScreenshotToEquipped() {
+    const candidateScreenshot = prototypeState.screenshots.candidate;
+
+    clearItemScreenshot("equipped");
+
+    if (!candidateScreenshot) {
+        return;
+    }
+
+    prototypeState.screenshots.equipped = candidateScreenshot;
+    prototypeState.screenshots.candidate = null;
+    renderItemScreenshot("equipped");
+    resetScreenshotControls("candidate");
+}
+
+function wireScreenshotIntake() {
+    SCREENSHOT_PREFIXES.forEach(prefix => {
+        const ui = screenshotElements(prefix);
+        if (!ui.input || !ui.dropZone) return;
+
+        ui.input.addEventListener("change", event => {
+            setItemScreenshot(prefix, event.target.files?.[0]);
+        });
+
+        ui.remove.addEventListener("click", () => {
+            clearItemScreenshot(prefix);
+        });
+
+        ["dragenter", "dragover"].forEach(eventName => {
+            ui.dropZone.addEventListener(eventName, event => {
+                event.preventDefault();
+                ui.dropZone.classList.add("drag-over");
+            });
+        });
+
+        ["dragleave", "drop"].forEach(eventName => {
+            ui.dropZone.addEventListener(eventName, event => {
+                event.preventDefault();
+                ui.dropZone.classList.remove("drag-over");
+            });
+        });
+
+        ui.dropZone.addEventListener("drop", event => {
+            const imageFile = Array.from(event.dataTransfer?.files ?? [])
+                .find(file => !file.type || file.type.startsWith("image/"));
+
+            if (imageFile) {
+                setItemScreenshot(prefix, imageFile);
+            }
+        });
+    });
+}
+
+function hasTemporaryScreenshots() {
+    return SCREENSHOT_PREFIXES.some(prefix => prototypeState.screenshots[prefix]);
+}
+
 function getGear(prefix) {
     return {
         name: el[prefix + "Name"].value.trim() || "Unnamed item",
@@ -278,7 +425,7 @@ function getGear(prefix) {
 
 function getCharacterFromForm() {
     return {
-        schemaVersion: "0.2b",
+        schemaVersion: "0.2d",
         profile: {
             name: el.characterName.value.trim(),
             className: el.className.value,
@@ -322,6 +469,8 @@ function setGear(prefix, gear) {
 }
 
 function populateForm(character) {
+    clearAllItemScreenshots();
+
     el.characterName.value = character.profile?.name ?? "";
     el.className.value = character.profile?.className ?? "Necromancer";
     el.realm.value = character.profile?.realm ?? "Seasonal";
@@ -646,6 +795,7 @@ function equipCandidate() {
         ...emptyLoadoutItem(),
         ...candidate
     });
+    promoteCandidateScreenshotToEquipped();
     prototypeState.candidateEquipped = true;
     document.getElementById("gearVerdict").textContent = "EQUIPPED";
     document.getElementById("gearReason").textContent =
@@ -853,7 +1003,9 @@ function updateFeedbackUI() {
 function savePrototype() {
     const data = getCharacterFromForm();
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data, null, 2));
-    document.getElementById("saveStatus").textContent = "Saved locally";
+    document.getElementById("saveStatus").textContent = hasTemporaryScreenshots()
+        ? "Saved locally · screenshots temporary"
+        : "Saved locally";
 }
 
 function markUnsaved() {
@@ -938,6 +1090,7 @@ function resetPrototype() {
 }
 
 renderEquipmentLoadout();
+wireScreenshotIntake();
 
 document.getElementById("loadDemoButton").addEventListener("click", () => {
     populateForm(DARKSTORM_DEMO_CHARACTER);
@@ -953,6 +1106,7 @@ document.getElementById("importInput").addEventListener("change", event => {
 document.getElementById("analyzeButton").addEventListener("click", analyzeBuild);
 document.getElementById("loadSlotFromLoadoutButton").addEventListener("click", loadSelectedSlotFromLoadout);
 el.comparisonSlot.addEventListener("change", () => {
+    clearAllItemScreenshots();
     loadSelectedSlotFromLoadout();
     setGear("candidate", {});
 });
@@ -990,8 +1144,17 @@ SKILL_SLOT_IDS.forEach(id => {
     el[id].addEventListener("input", updateSkillSlotStatus);
 });
 
-document.querySelectorAll("input, select, textarea").forEach(input => {
+document.querySelectorAll('input:not([type="file"]), select, textarea').forEach(input => {
     input.addEventListener("change", markUnsaved);
+});
+
+window.addEventListener("beforeunload", () => {
+    SCREENSHOT_PREFIXES.forEach(prefix => {
+        const screenshot = prototypeState.screenshots[prefix];
+        if (screenshot?.url) {
+            URL.revokeObjectURL(screenshot.url);
+        }
+    });
 });
 
 const savedPrototype = localStorage.getItem(STORAGE_KEY);
