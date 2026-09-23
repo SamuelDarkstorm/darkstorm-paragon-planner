@@ -9,7 +9,7 @@
 <body>
 <header class="site-header">
     <div>
-        <p class="eyebrow">Prototype 0.2 · Character Model</p>
+        <p class="eyebrow">Prototype 0.2D · Screenshot Intake</p>
         <h1>💀 Darkstorm</h1>
         <p>What should I do next, and why?</p>
     </div>
@@ -222,9 +222,31 @@
             </label>
         </div>
 
+        <p class="muted section-intro">
+            Add an in-game screenshot to either side as a visual reference. On a computer you can choose or drag an image; on a tablet or phone you can choose one from Photos or Files. Screenshot reading will be added next, so the item fields remain editable for confirmation.
+        </p>
+
         <div class="gear-grid">
             <fieldset>
                 <legend>Equipped Item</legend>
+
+                <div class="screenshot-intake" id="equippedScreenshotDropZone">
+                    <div class="screenshot-heading">
+                        <strong>Item Screenshot</strong>
+                        <span id="equippedScreenshotStatus" class="status-pill compact">Temporary</span>
+                    </div>
+                    <div class="screenshot-preview">
+                        <img id="equippedScreenshotPreview" alt="Equipped item screenshot preview" hidden>
+                        <p id="equippedScreenshotEmpty" class="muted">No screenshot selected. Drop an image here or choose one below.</p>
+                    </div>
+                    <div class="screenshot-actions">
+                        <label class="button secondary" for="equippedScreenshotInput">Choose Screenshot</label>
+                        <input id="equippedScreenshotInput" type="file" accept="image/*" hidden>
+                        <button id="equippedScreenshotRemove" type="button" class="secondary" hidden>Remove</button>
+                    </div>
+                    <p class="muted screenshot-help">The screenshot stays in this browser tab for comparison and is not saved or exported yet.</p>
+                </div>
+
                 <label>Name <input id="equippedName" type="text"></label>
                 <label>Item Type <input id="equippedItemType" type="text"></label>
                 <label>Item Power <input id="equippedItemPower" type="number" min="0"></label>
@@ -241,6 +263,24 @@
 
             <fieldset>
                 <legend>Candidate Item</legend>
+
+                <div class="screenshot-intake" id="candidateScreenshotDropZone">
+                    <div class="screenshot-heading">
+                        <strong>Item Screenshot</strong>
+                        <span id="candidateScreenshotStatus" class="status-pill compact">Temporary</span>
+                    </div>
+                    <div class="screenshot-preview">
+                        <img id="candidateScreenshotPreview" alt="Candidate item screenshot preview" hidden>
+                        <p id="candidateScreenshotEmpty" class="muted">No screenshot selected. Drop an image here or choose one below.</p>
+                    </div>
+                    <div class="screenshot-actions">
+                        <label class="button secondary" for="candidateScreenshotInput">Choose Screenshot</label>
+                        <input id="candidateScreenshotInput" type="file" accept="image/*" hidden>
+                        <button id="candidateScreenshotRemove" type="button" class="secondary" hidden>Remove</button>
+                    </div>
+                    <p class="muted screenshot-help">The screenshot stays in this browser tab for comparison and is not saved or exported yet.</p>
+                </div>
+
                 <label>Name <input id="candidateName" type="text"></label>
                 <label>Item Type <input id="candidateItemType" type="text"></label>
                 <label>Item Power <input id="candidateItemPower" type="number" min="0"></label>
@@ -290,7 +330,7 @@
 </main>
 
 <footer>
-    Darkstorm Prototype 0.2 · Richer character data, functional first.
+    Darkstorm Prototype 0.2D · Cross-device screenshot intake, functional first.
 </footer>
 
 <script src="data/demo-character.js"></script>
