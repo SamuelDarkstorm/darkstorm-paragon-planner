@@ -389,14 +389,112 @@ const NECROMANCER_MARKERS = [
     "necromancer starting board"
 ];
 
+const MINION_SKILL_MARKERS = [
+    "raise skeleton",
+    "skeleton warrior",
+    "skeleton mage",
+    "golem",
+    "army of the dead"
+];
+
+function buildIdentityFor(character) {
+    const className = character.profile.className;
+    const archetype = character.build.archetype.trim().toLowerCase();
+    const activeSkills = activeSkillsFor(character);
+    const normalizedSkills = activeSkills.map(skill => skill.toLowerCase());
+
+    if (className !== "Necromancer") {
+        return {
+            key: "generic",
+            label: `${className} · unclassified`,
+            confidence: 35,
+            evidence: activeSkills.length
+                ? `${activeSkills.length} structured skill slot(s) recorded.`
+                : "No active skill evidence yet.",
+            warning: null
+        };
+    }
+
+    const minionSignals = normalizedSkills.filter(skill =>
+        MINION_SKILL_MARKERS.some(marker => skill.includes(marker))
+    );
+    const claimsMinion = /minion|summon/.test(archetype);
+
+    if (claimsMinion && minionSignals.length === 0) {
+        return {
+            key: "minion-necromancer-unverified",
+            label: "Minion Necromancer · unverified",
+            confidence: 30,
+            evidence: "The archetype says Minion/Summoner, but the six active skill slots contain no recognized minion skill signal.",
+            warning: "The archetype says Minion/Summoner, but Darkstorm cannot find a recognized minion skill in the active slots. Verify the skill bar before optimization."
+        };
+    }
+
+    if (minionSignals.length >= 2) {
+        return {
+            key: "minion-necromancer",
+            label: claimsMinion
+                ? "Minion Necromancer · confirmed"
+                : "Minion Necromancer · inferred",
+            confidence: claimsMinion ? 95 : 82,
+            evidence: `Recognized ${minionSignals.length} minion skill signals: ${minionSignals.join(", ")}.`,
+            warning: null
+        };
+    }
+
+    if (claimsMinion && minionSignals.length === 1) {
+        return {
+            key: "minion-necromancer",
+            label: "Minion Necromancer · partial",
+            confidence: 72,
+            evidence: `The archetype says Minion/Summoner and Darkstorm recognized ${minionSignals[0]}.`,
+            warning: null
+        };
+    }
+
+    return {
+        key: "necromancer-unclassified",
+        label: "Necromancer · unclassified",
+        confidence: 45,
+        evidence: activeSkills.length
+            ? "The skill bar is structured, but it does not yet match the prototype's Minion Necromancer reference pattern."
+            : "No active skill evidence yet.",
+        warning: null
+    };
+}
+
+function updateBuildIdentityUI(character = getCharacterFromForm()) {
+    const identity = buildIdentityFor(character);
+    const badge = document.getElementById("buildIdentityBadge");
+    const warning = document.getElementById("buildIdentityWarning");
+    const warningText = document.getElementById("buildIdentityWarningText");
+
+    if (badge) {
+        badge.textContent = `Build identity: ${identity.label}`;
+        badge.title = identity.evidence;
+    }
+
+    if (warning && warningText) {
+        if (identity.warning) {
+            warning.hidden = false;
+            warningText.textContent = identity.warning;
+        } else {
+            warning.hidden = true;
+            warningText.textContent = "";
+        }
+    }
+
+    return identity;
+}
+
 function classKnowledgeFor(character) {
     const className = character.profile.className;
-    const archetype = character.build.archetype.toLowerCase();
+    const identity = buildIdentityFor(character);
 
-    if (className === "Necromancer" && /minion|summon/.test(archetype)) {
+    if (className === "Necromancer" && identity.key === "minion-necromancer") {
         return {
             label: "Reference implementation",
-            confidenceCap: 100
+            confidenceCap: Math.min(100, identity.confidence)
         };
     }
 
@@ -445,6 +543,7 @@ function updateClassAwareness() {
     const character = getCharacterFromForm();
     const knowledge = classKnowledgeFor(character);
     const mismatch = detectClassMismatch(character);
+    updateBuildIdentityUI(character);
 
     document.getElementById("classKnowledgeBadge").textContent =
         `Class knowledge: ${knowledge.label}`;
@@ -577,6 +676,7 @@ function recommendationFor(character) {
     const goal = character.profile.goal;
     const feedback = prototypeState.feedbackResult;
     const gearComparison = prototypeState.lastGearComparison;
+    const identity = buildIdentityFor(character);
 
     if (feedback === "worse") {
         return {
@@ -615,6 +715,18 @@ function recommendationFor(character) {
     }
 
     if (problem === "survivability" || goal === "survivability") {
+        if (identity.key === "minion-necromancer") {
+            return {
+                title: "Stabilize player survivability without disturbing the minion core.",
+                summary: `Darkstorm recognized a ${identity.label.toLowerCase()} from the structured skill bar. The current bottleneck is defensive consistency, not build identity.`,
+                why: "The active skill structure already commits multiple slots to the minion package, so the safer first test is improving the player's durability while preserving that core.",
+                whyNow: "Changing the skill package and defensive setup at the same time would make it harder to tell which change solved the reported survivability problem.",
+                whyNot: "A broad offensive rebuild is lower priority while the player is still reporting deaths as the limiting problem.",
+                changes: "If survivability becomes stable across repeated runs, Darkstorm can shift attention toward clear speed, damage, or Paragon.",
+                confidence: 84
+            };
+        }
+
         return {
             title: "Stabilize survivability before chasing more damage.",
             summary: "Darkstorm is prioritizing the problem the player says is currently limiting progression.",
@@ -678,6 +790,7 @@ function analyzeBuild() {
     updateClassAwareness();
 
     const mismatch = detectClassMismatch(character);
+    const identity = buildIdentityFor(character);
     const knowledge = classKnowledgeFor(character);
 
     let recommendation;
@@ -691,6 +804,16 @@ function analyzeBuild() {
             whyNot: "Darkstorm should not guess how to translate skills, archetypes, or Paragon data between classes.",
             changes: "Reset or correct the build snapshot so it matches the selected class, then analyze again.",
             confidence: 98
+        };
+    } else if (identity.warning) {
+        recommendation = {
+            title: "Verify the build identity before optimizing.",
+            summary: identity.warning,
+            why: "Darkstorm now uses the structured skill slots as evidence instead of trusting the typed archetype by itself.",
+            whyNow: "If the archetype and active skills disagree, gear or Paragon recommendations could optimize the wrong build.",
+            whyNot: "Darkstorm should not silently assume the typed build name is correct when the skill bar provides conflicting evidence.",
+            changes: "Correct the archetype or active skill slots, then analyze again.",
+            confidence: 94
         };
     } else {
         recommendation = recommendationFor(character);
