@@ -202,6 +202,32 @@ button.danger {
     grid-column: 1 / -1;
 }
 
+.field-heading {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 8px;
+    color: #d7dde4;
+    font-size: .92rem;
+}
+
+.status-pill.compact {
+    padding: 3px 8px;
+    font-size: .75rem;
+}
+
+.skill-slot-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+}
+
+.field-help {
+    margin-top: 8px;
+    font-size: .82rem;
+}
+
 label {
     display: grid;
     gap: 6px;
@@ -416,7 +442,8 @@ footer {
     .form-grid.two-column,
     .gear-grid,
     .equipment-loadout,
-    .explanation-grid {
+    .explanation-grid,
+    .skill-slot-grid {
         grid-template-columns: 1fr;
     }
 
