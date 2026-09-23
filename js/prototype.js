@@ -582,7 +582,7 @@ function parseDiabloItemText(rawText, slotKey) {
 
             if (
                 index > powerStart &&
-                /\b(?:empty socket|requires level|sell value|durability|equip|compare|mark as junk|drop)\b/i.test(line)
+                /\b(?:empty socket|requires level|sell value|durability|equip|compare|mark as junk|drop|scroll)\b/i.test(line)
             ) {
                 break;
             }
@@ -684,6 +684,8 @@ async function readItemScreenshot(prefix) {
                     if (message.status === "recognizing text") {
                         const percent = Math.round((message.progress ?? 0) * 100);
                         ui.status.textContent = `Reading ${percent}%`;
+                    } else if (message.status) {
+                        ui.status.textContent = "Preparing reader…";
                     }
                 }
             }
