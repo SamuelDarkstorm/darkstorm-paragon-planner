@@ -91,7 +91,10 @@
                 <p class="step-label">Step 2</p>
                 <h2>Build Snapshot</h2>
             </div>
-            <button id="analyzeButton" type="button">Analyze Build</button>
+            <div class="header-actions">
+                <span id="buildIdentityBadge" class="status-pill">Build identity: --</span>
+                <button id="analyzeButton" type="button">Analyze Build</button>
+            </div>
         </div>
 
         <div id="classMismatchWarning" class="warning-card" hidden>
@@ -100,6 +103,13 @@
                 <p id="classMismatchText">Review the snapshot before analysis.</p>
             </div>
             <button id="resetSnapshotButton" type="button" class="secondary">Reset Build Snapshot</button>
+        </div>
+
+        <div id="buildIdentityWarning" class="warning-card" hidden>
+            <div>
+                <strong>Build identity needs review.</strong>
+                <p id="buildIdentityWarningText">The selected archetype and skill slots do not currently agree.</p>
+            </div>
         </div>
 
         <div class="form-grid two-column">
