@@ -544,9 +544,15 @@ function parseDiabloItemText(rawText, slotKey) {
     }
 
     const itemPowerIndex = lines.findIndex(line => /Item\s*Power/i.test(line));
-    const armorIndex = lines.findIndex(line => /\bArmor\b/i.test(line));
-    const damageIndex = lines.findIndex(line => /(?:Weapon\s+)?Damage/i.test(line));
-    const affixStart = Math.max(rarityIndex, itemPowerIndex, armorIndex, damageIndex) + 1;
+    const baseSearchStart = itemPowerIndex >= 0
+        ? itemPowerIndex + 1
+        : Math.max(0, rarityIndex + 1);
+    const baseStatIndex = lines.findIndex((line, index) =>
+        index >= baseSearchStart &&
+        index <= baseSearchStart + 4 &&
+        /\b(?:Armor|(?:Weapon\s+)?Damage)\b/i.test(line)
+    );
+    const affixStart = Math.max(rarityIndex, itemPowerIndex, baseStatIndex) + 1;
     const stopPattern = /\b(?:imprinted|aspect|empty socket|requires level|sell value|durability|mark as junk|compare|drop)\b/i;
     const affixPattern = /\b(?:intelligence|strength|dexterity|willpower|maximum life|armor|fortify|healing|thorns|critical|attack speed|movement speed|cooldown|resource|resistance|damage reduction|damage|life|ranks?|lucky hit|essence|vulnerable|minion|golem|skeleton)\b/i;
     const affixLines = [];
