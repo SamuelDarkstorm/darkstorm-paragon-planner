@@ -438,6 +438,50 @@ legend {
     font-size: .8rem;
 }
 
+.screenshot-readout {
+    display: grid;
+    gap: 8px;
+    padding: 10px;
+    border: 1px solid #355f4c;
+    border-radius: 8px;
+    background: #101713;
+}
+
+.screenshot-readout[hidden] {
+    display: none;
+}
+
+.screenshot-readout p {
+    color: #cbd3db;
+    font-size: .85rem;
+}
+
+.screenshot-readout details {
+    border-top: 1px solid #2a3d34;
+    padding-top: 7px;
+}
+
+.screenshot-readout summary {
+    cursor: pointer;
+    color: var(--accent);
+    font-size: .8rem;
+}
+
+.screenshot-readout pre {
+    margin-top: 8px;
+    max-height: 220px;
+    overflow: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+    color: #b9c2cb;
+    font-size: .75rem;
+}
+
+.screenshot-intake.reading {
+    border-style: solid;
+    border-color: #8b6f22;
+}
+
 .screenshot-intake.has-image {
     border-style: solid;
     border-color: #355f4c;
