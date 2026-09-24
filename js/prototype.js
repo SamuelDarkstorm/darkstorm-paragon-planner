@@ -948,18 +948,30 @@ function findLineWith(lines, pattern, startIndex = 0, maxDistance = Infinity) {
     return null;
 }
 
-function rangeFromLine(line) {
+function decimalRangeFromLine(line) {
     const match = String(line ?? "").match(
-        /[\[(]\s*([0-9OIlS,.]{1,8})\s*[-–]\s*([0-9OIlS,.]{1,8})\s*[\])]/i
+        /[\[(]\s*([0-9OIlS,.]{1,12})\s*[-–]\s*([0-9OIlS,.]{1,12})\s*[\])]/i
     );
 
     if (!match) return null;
 
-    const low = integerFromOcr(match[1]);
-    const high = integerFromOcr(match[2]);
+    const low = decimalFromOcr(match[1]);
+    const high = decimalFromOcr(match[2]);
 
-    if (!low || !high) return null;
+    if (!Number.isFinite(low) || !Number.isFinite(high) || low <= 0 || high <= 0) {
+        return null;
+    }
+
     return { low: Math.min(low, high), high: Math.max(low, high) };
+}
+
+function rangeFromLine(line) {
+    const range = decimalRangeFromLine(line);
+    if (!range) return null;
+    return {
+        low: Math.round(range.low),
+        high: Math.round(range.high)
+    };
 }
 
 function numberBeforeLabel(line, labelPattern) {
@@ -1040,6 +1052,34 @@ function canonicalAffixLine(line) {
     return `${rawValue} ${label}`;
 }
 
+function structuredAffixFromLine(line) {
+    const canonical = canonicalAffixLine(line);
+    if (!canonical) return null;
+
+    const valueMatch = canonical.match(/^[+-]?\s*[0-9.,]+(?:\.[0-9]+)?%?/);
+    if (!valueMatch) return null;
+
+    const value = valueMatch[0].replace(/\s+/g, "");
+    const stat = canonical.slice(valueMatch[0].length).trim();
+    const range = decimalRangeFromLine(line);
+    const isPercent = value.includes("%") || /%/.test(line);
+
+    return {
+        stat,
+        value,
+        min: range ? String(range.low) + (isPercent ? "%" : "") : "",
+        max: range ? String(range.high) + (isPercent ? "%" : "") : ""
+    };
+}
+
+function affixDetailsFromLegacyText(text) {
+    return String(text ?? "")
+        .split(/\r?\n/)
+        .map(line => structuredAffixFromLine(line))
+        .filter(Boolean)
+        .slice(0, MAX_AFFIX_ROWS);
+}
+
 function powerLooksUsable(power) {
     if (!power || power.length < 12) return false;
 
@@ -1074,6 +1114,13 @@ function parseDiabloItemText(rawText, slotKey) {
     );
 
     if (rarityIndex >= 0) {
+        const rarityMatch = lines[rarityIndex].match(/\b(Legendary|Unique|Rare|Magic)\b/i);
+        if (rarityMatch) {
+            const rarity = rarityMatch[1].toLowerCase();
+            fields.rarity = rarity[0].toUpperCase() + rarity.slice(1);
+            detected.push("Rarity");
+        }
+
         const exactType = exactItemTypeFromText(lines[rarityIndex]);
         if (exactType) {
             fields.itemType = exactType;
@@ -1178,20 +1225,36 @@ function parseDiabloItemText(rawText, slotKey) {
     const affixStart = baseStatIndex + 1;
     const stopPattern = /\b(?:imprinted|aspect|empty socket|requires level|sell value|durability|mark as junk|compare|drop)\b/i;
     const affixLines = [];
+    const affixDetails = [];
 
     for (let index = Math.max(0, affixStart); index < lines.length; index += 1) {
         const line = lines[index];
         if (stopPattern.test(line)) break;
 
         const canonical = canonicalAffixLine(line);
+        const detail = structuredAffixFromLine(line);
         if (canonical) {
             affixLines.push(canonical);
         }
+        if (detail) {
+            const key = [detail.stat, detail.value, detail.min, detail.max].join("|");
+            const alreadyCaptured = affixDetails.some(existing =>
+                [existing.stat, existing.value, existing.min, existing.max].join("|") === key
+            );
 
-        if (affixLines.length >= 8) break;
+            if (!alreadyCaptured) {
+                affixDetails.push(detail);
+            }
+        }
+
+        if (affixDetails.length >= MAX_AFFIX_ROWS) break;
     }
 
-    if (affixLines.length) {
+    if (affixDetails.length) {
+        fields.affixDetails = affixDetails.slice(0, MAX_AFFIX_ROWS);
+        fields.affixes = formatAffixDetails(fields.affixDetails);
+        detected.push("Affixes");
+    } else if (affixLines.length) {
         fields.affixes = [...new Set(affixLines)].join("\n");
         detected.push("Affixes");
     }
@@ -1221,9 +1284,37 @@ function parseDiabloItemText(rawText, slotKey) {
         if (powerLooksUsable(power)) {
             fields.power = power;
             detected.push("Aspect / unique power");
+
+            const visibleRange = decimalRangeFromLine(power);
+            const firstPercent = power.match(/([0-9OIlS,.]+(?:\.[0-9]+)?)\s*%/i);
+
+            if (visibleRange && firstPercent) {
+                const roll = decimalFromOcr(firstPercent[1]);
+                if (roll >= visibleRange.low * 0.7 && roll <= visibleRange.high * 1.3) {
+                    fields.powerValue = String(roll) + "%";
+                    fields.powerMin = String(visibleRange.low) + "%";
+                    fields.powerMax = String(visibleRange.high) + "%";
+                    detected.push("Power roll");
+                }
+            }
         } else if (power) {
             rejected.push("Aspect / unique power");
         }
+    }
+
+    const requiredLevelMatch = joined.match(/\bRequires\s+Level\s+([0-9OIlS]{1,3})\b/i);
+    if (requiredLevelMatch) {
+        const value = integerFromOcr(requiredLevelMatch[1]);
+        if (value > 0 && value <= 100) {
+            fields.requiredLevel = value;
+            detected.push("Required level");
+        }
+    }
+
+    const temperMatch = joined.match(/\bTempers?\s*:\s*([0-9OIlS]{1,2}\s*\/\s*[0-9OIlS]{1,2})/i);
+    if (temperMatch) {
+        fields.tempers = temperMatch[1].replace(/\s+/g, "");
+        detected.push("Temper status");
     }
 
     const masterworkMatch = joined.match(/\bMasterwork(?:ed)?[^0-9]{0,12}(\d{1,2})(?:\s*\/\s*12)?/i);
@@ -1238,7 +1329,9 @@ function parseDiabloItemText(rawText, slotKey) {
     const socketMatches = joined.match(/\bEmpty\s+Socket\b/gi) ?? [];
     if (socketMatches.length) {
         fields.sockets = Math.min(2, socketMatches.length);
+        fields.socketContents = Array(fields.sockets).fill("Empty").join(", ");
         detected.push("Sockets");
+        detected.push("Socket contents");
     }
 
     return {
