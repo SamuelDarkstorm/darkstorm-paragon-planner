@@ -1875,6 +1875,36 @@ function mergeScreenshotExtractions(primary, enhanced) {
         }
     });
 
+    // Scalar base stats are trustworthy when either pass found a plausible
+    // bounded header value. Re-read both raw passes before finalizing merge so
+    // a good primary Armor value cannot disappear because enhanced OCR missed it.
+    const rawPasses = [primary.rawText ?? "", enhanced.rawText ?? ""]
+        .map(cleanedOcrLines)
+        .filter(lines => lines.length);
+
+    if (!merged.fields.armor) {
+        for (const passLines of rawPasses) {
+            const rarityIndex = passLines.findIndex(line =>
+                /\b(?:legendary|unique|rare|magic)\b/i.test(line) &&
+                /\b(?:helm|chest|armor|gloves|pants|boots|amulet|ring|sword|axe|mace|dagger|wand|scythe|focus|shield|staff|polearm|totem)\b/i.test(line)
+            );
+            const start = Math.max(0, rarityIndex + 1);
+            const firstAffix = passLines.findIndex((line, index) =>
+                index >= start &&
+                Boolean(affixStatDefinitionFromText(line)) &&
+                Boolean(firstSignedValue(line))
+            );
+            const end = firstAffix >= 0 ? firstAffix : Math.min(passLines.length, start + 14);
+            const armor = baseArmorFromHeader(passLines, start, end);
+            if (armor) {
+                merged.fields.armor = armor;
+                merged.detected.push("Armor");
+                merged.uncertain = merged.uncertain.filter(label => label !== "Armor");
+                break;
+            }
+        }
+    }
+
     merged.fields.affixDetails = combinedAffixes.slice(0, MAX_AFFIX_ROWS);
     if (merged.fields.affixDetails.length) {
         merged.fields.affixes = formatAffixDetails(merged.fields.affixDetails);
