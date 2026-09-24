@@ -723,27 +723,75 @@ function exactItemTypeFromText(text) {
     return match?.[1] ?? "";
 }
 
-function parseItemName(lines, rarityIndex) {
-    if (rarityIndex <= 0) return "";
+function normalizedItemName(value) {
+    return String(value ?? "")
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, " ")
+        .trim();
+}
 
-    const blacklist = /(?:equipped|character|stats|materials|no title|weapon damage|toughness|strength|intelligence|willpower|dexterity|equipment|dungeon keys|slot transmog|hide transmog|mark as favorite)/i;
+function parseItemName(lines, rarityIndex) {
+    if (rarityIndex <= 0) {
+        return { value: "", confident: false };
+    }
+
+    // Item names are much noisier than numeric stats. Stay conservative:
+    // only inspect the lines immediately above the rarity/type line and
+    // prefer a blank field over combining unrelated UI text into a fake name.
+    const blacklist = /(?:equipped|character|stats|materials|no title|weapon damage|toughness|strength|intelligence|willpower|dexterity|equipment|dungeon keys|slot transmog|hide transmog|mark as favorite|primal|ancestral|sacred|legendary|unique|rare|magic|item power|armor|damage per second)/i;
     const candidates = [];
-    const windowStart = Math.max(0, rarityIndex - 8);
+    const windowStart = Math.max(0, rarityIndex - 3);
 
     for (let index = windowStart; index < rarityIndex; index += 1) {
-        const line = lines[index];
-        if (blacklist.test(line)) continue;
-        if (/\d|%|\[|\]|:/.test(line)) continue;
+        const line = lines[index].trim();
+        if (!line || blacklist.test(line)) continue;
+        if (/\d|%|\[|\]|:|[{}<>|]/.test(line)) continue;
 
         const letters = (line.match(/[A-Za-z]/g) ?? []).length;
         const usefulCharacters = line.replace(/\s/g, "").length;
-        if (!usefulCharacters || letters / usefulCharacters < 0.72) continue;
+        if (!usefulCharacters || letters / usefulCharacters < 0.82) continue;
         if (!/^[A-Za-z][A-Za-z'’& -]{1,42}$/.test(line)) continue;
 
-        candidates.push(line);
+        const words = line.split(/\s+/).filter(Boolean);
+        if (words.length > 6) continue;
+
+        candidates.push({ line, index });
     }
 
-    return candidates.slice(-4).join(" ").trim();
+    if (!candidates.length) {
+        return { value: "", confident: false };
+    }
+
+    const nearest = candidates[candidates.length - 1];
+    const distanceToRarity = rarityIndex - nearest.index;
+
+    // A trustworthy item name should sit directly above the rarity/type line.
+    if (distanceToRarity > 2) {
+        return { value: "", confident: false };
+    }
+
+    // If two adjacent title-like lines appear immediately above the rarity
+    // line, allow a wrapped name. Never join more than two lines.
+    const previous = candidates[candidates.length - 2];
+    let value = nearest.line;
+
+    if (
+        previous &&
+        nearest.index === rarityIndex - 1 &&
+        previous.index === rarityIndex - 2
+    ) {
+        const combined = `${previous.line} ${nearest.line}`.trim();
+        const combinedWords = combined.split(/\s+/).filter(Boolean);
+
+        if (combined.length <= 48 && combinedWords.length <= 7) {
+            value = combined;
+        }
+    }
+
+    return {
+        value,
+        confident: Boolean(value)
+    };
 }
 
 function findLineWith(lines, pattern, startIndex = 0, maxDistance = Infinity) {
@@ -876,6 +924,7 @@ function parseDiabloItemText(rawText, slotKey) {
     const detected = [];
     const inferred = [];
     const rejected = [];
+    const uncertain = [];
 
     const rarityIndex = lines.findIndex(line =>
         /\b(?:legendary|unique|rare|magic)\b/i.test(line) &&
@@ -890,9 +939,11 @@ function parseDiabloItemText(rawText, slotKey) {
         }
 
         const itemName = parseItemName(lines, rarityIndex);
-        if (itemName) {
-            fields.name = itemName;
+        if (itemName.confident && itemName.value) {
+            fields.name = itemName.value;
             detected.push("Name");
+        } else {
+            uncertain.push("Name");
         }
     }
 
@@ -1053,6 +1104,7 @@ function parseDiabloItemText(rawText, slotKey) {
         detected: [...new Set(detected)],
         inferred,
         rejected: [...new Set(rejected)],
+        uncertain: [...new Set(uncertain)],
         rawText: String(rawText ?? "").trim()
     };
 }
@@ -1090,9 +1142,12 @@ function applyScreenshotExtraction(prefix, extraction, ocrConfidence) {
     const rejectedText = extraction.rejected?.length
         ? ` Skipped as uncertain: ${extraction.rejected.join(", ")}.`
         : "";
+    const uncertainText = extraction.uncertain?.length
+        ? ` Gamer entry needed: ${extraction.uncertain.join(", ")} could not be read confidently and was left blank.`
+        : "";
 
     ui.readoutText.textContent =
-        `Detected: ${extraction.detected.join(", ")}. OCR text confidence: ${Math.round(ocrConfidence)}%. Fields Darkstorm could not confidently map were left blank or zero.${rejectedText}${inferredText} Review the fields before Compare Gear.`;
+        `Detected: ${extraction.detected.join(", ")}. OCR text confidence: ${Math.round(ocrConfidence)}%. Fields Darkstorm could not confidently map were left blank or zero.${rejectedText}${uncertainText}${inferredText} Review the fields before confirming the item.`;
 
     return true;
 }
@@ -1119,6 +1174,8 @@ function shouldRunEnhancedRead(extraction) {
     const fields = extraction?.fields ?? {};
     return (
         extractionQuality(extraction) < 8 ||
+        !fields.name ||
+        extraction?.uncertain?.includes("Name") ||
         !fields.itemPower ||
         (!fields.armor && !fields.damage)
     );
@@ -1130,6 +1187,7 @@ function mergeScreenshotExtractions(primary, enhanced) {
         detected: [...new Set(primary.detected ?? [])],
         inferred: [...new Set(primary.inferred ?? [])],
         rejected: [...new Set(primary.rejected ?? [])],
+        uncertain: [...new Set(primary.uncertain ?? [])],
         rawText: primary.rawText ?? ""
     };
 
@@ -1150,6 +1208,39 @@ function mergeScreenshotExtractions(primary, enhanced) {
         const current = merged.fields[key];
         const isMissing = current === "" || current === 0 || current == null;
         const hasValue = value !== "" && value !== 0 && value != null;
+
+        if (key === "name") {
+            const primaryName = String(current ?? "").trim();
+            const enhancedName = String(value ?? "").trim();
+
+            if (primaryName && enhancedName) {
+                if (
+                    normalizedItemName(primaryName) ===
+                    normalizedItemName(enhancedName)
+                ) {
+                    merged.fields.name = primaryName;
+                    merged.detected.push("Name");
+                    merged.uncertain = merged.uncertain.filter(
+                        label => label !== "Name"
+                    );
+                } else {
+                    merged.fields.name = "";
+                    merged.detected = merged.detected.filter(
+                        label => label !== "Name"
+                    );
+                    merged.uncertain.push("Name");
+                }
+            } else if (!primaryName && enhancedName) {
+                // One OCR pass is not enough evidence for a noisy item name.
+                merged.fields.name = "";
+                merged.detected = merged.detected.filter(
+                    label => label !== "Name"
+                );
+                merged.uncertain.push("Name");
+            }
+
+            return;
+        }
 
         if (isMissing && hasValue) {
             merged.fields[key] = value;
@@ -1172,6 +1263,10 @@ function mergeScreenshotExtractions(primary, enhanced) {
     merged.rejected = [...new Set([
         ...merged.rejected,
         ...(enhanced.rejected ?? [])
+    ])];
+    merged.uncertain = [...new Set([
+        ...merged.uncertain,
+        ...(enhanced.uncertain ?? [])
     ])];
 
     merged.rawText = [
