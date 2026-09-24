@@ -280,6 +280,19 @@
                 <label>Tempers <textarea id="equippedTempers" rows="2"></textarea></label>
                 <label>Masterwork <input id="equippedMasterwork" type="number" min="0" max="12"></label>
                 <label>Sockets <input id="equippedSockets" type="number" min="0" max="2"></label>
+
+                <div class="item-confirmation" id="equippedConfirmationPanel">
+                    <div class="item-confirmation-heading">
+                        <strong>Gamer Verification</strong>
+                        <span id="equippedConfirmationStatus" class="status-pill compact">No screenshot · not required</span>
+                    </div>
+                    <p class="muted">
+                        Check the screenshot against every field above. Correct anything Darkstorm read incorrectly before confirming.
+                    </p>
+                    <button id="equippedConfirmButton" type="button" class="secondary" disabled>
+                        Confirm Equipped Item Data
+                    </button>
+                </div>
             </fieldset>
 
             <fieldset>
@@ -323,6 +336,19 @@
                 <label>Tempers <textarea id="candidateTempers" rows="2"></textarea></label>
                 <label>Masterwork <input id="candidateMasterwork" type="number" min="0" max="12"></label>
                 <label>Sockets <input id="candidateSockets" type="number" min="0" max="2"></label>
+
+                <div class="item-confirmation" id="candidateConfirmationPanel">
+                    <div class="item-confirmation-heading">
+                        <strong>Gamer Verification</strong>
+                        <span id="candidateConfirmationStatus" class="status-pill compact">No screenshot · not required</span>
+                    </div>
+                    <p class="muted">
+                        Check the screenshot against every field above. Correct anything Darkstorm read incorrectly before confirming.
+                    </p>
+                    <button id="candidateConfirmButton" type="button" class="secondary" disabled>
+                        Confirm Candidate Item Data
+                    </button>
+                </div>
             </fieldset>
         </div>
 
