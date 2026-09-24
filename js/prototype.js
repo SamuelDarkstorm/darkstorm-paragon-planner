@@ -1230,8 +1230,9 @@ function mergeScreenshotExtractions(primary, enhanced) {
                     );
                     merged.uncertain.push("Name");
                 }
-            } else if (!primaryName && enhancedName) {
+            } else if (primaryName || enhancedName) {
                 // One OCR pass is not enough evidence for a noisy item name.
+                // If only one pass sees a name, leave it for the gamer to enter.
                 merged.fields.name = "";
                 merged.detected = merged.detected.filter(
                     label => label !== "Name"
