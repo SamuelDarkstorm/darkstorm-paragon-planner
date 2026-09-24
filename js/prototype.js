@@ -1380,7 +1380,7 @@ function sequentialAffixes(lines, startIndex, stopPattern) {
     const uncertain = [];
     const anchors = affixAnchors(lines, startIndex, stopPattern);
 
-    anchors.slice(0, MAX_AFFIX_ROWS).forEach((anchor, anchorIndex) => {
+    anchors.forEach((anchor, anchorIndex) => {
         const nextAnchor = anchors[anchorIndex + 1];
         let range = null;
 
@@ -1436,7 +1436,25 @@ function sequentialAffixes(lines, startIndex, stopPattern) {
         if (!valueValid) uncertain.push(anchor.stat);
     });
 
-    return { details, uncertain };
+    const deduped = [];
+    details.forEach(detail => {
+        if (!detail?.stat) return;
+        const existing = deduped.find(item =>
+            String(item.stat).toLowerCase() === String(detail.stat).toLowerCase()
+        );
+        if (!existing) {
+            deduped.push({ ...detail });
+            return;
+        }
+        if (!existing.value && detail.value) existing.value = detail.value;
+        if (!existing.min && detail.min) existing.min = detail.min;
+        if (!existing.max && detail.max) existing.max = detail.max;
+    });
+
+    return {
+        details: deduped.slice(0, MAX_AFFIX_ROWS),
+        uncertain: [...new Set(uncertain)]
+    };
 }
 
 function parseDiabloItemText(rawText, slotKey) {
