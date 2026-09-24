@@ -349,7 +349,9 @@ function clearItemScreenshot(prefix, { revoke = true } = {}) {
 
     prototypeState.screenshots[prefix] = null;
     prototypeState.screenshotItemTypes[prefix] = "";
+    prototypeState.itemConfirmed[prefix] = false;
     resetScreenshotControls(prefix);
+    updateItemConfirmationUI(prefix);
     updateGearSlotMismatchUI();
 }
 
@@ -374,13 +376,16 @@ function setItemScreenshot(prefix, file) {
         size: file.size || 0,
         type: file.type || "image"
     };
+    prototypeState.itemConfirmed[prefix] = false;
 
     renderItemScreenshot(prefix);
+    updateItemConfirmationUI(prefix);
 }
 
 function promoteCandidateScreenshotToEquipped() {
     const candidateScreenshot = prototypeState.screenshots.candidate;
     const candidateItemType = prototypeState.screenshotItemTypes.candidate;
+    const candidateConfirmed = prototypeState.itemConfirmed.candidate;
 
     clearItemScreenshot("equipped");
 
@@ -390,10 +395,13 @@ function promoteCandidateScreenshotToEquipped() {
 
     prototypeState.screenshots.equipped = candidateScreenshot;
     prototypeState.screenshotItemTypes.equipped = candidateItemType;
+    prototypeState.itemConfirmed.equipped = candidateConfirmed;
     prototypeState.screenshots.candidate = null;
     prototypeState.screenshotItemTypes.candidate = "";
+    prototypeState.itemConfirmed.candidate = false;
     renderItemScreenshot("equipped");
     resetScreenshotControls("candidate");
+    updateAllItemConfirmationUI();
     updateGearSlotMismatchUI();
 }
 
@@ -628,7 +636,7 @@ function updateGearSlotMismatchUI() {
         warningText.textContent = "";
         useDetectedButton.hidden = true;
         useDetectedButton.dataset.slot = "";
-        compareButton.disabled = false;
+        syncGearActionAvailability();
         return state;
     }
 
@@ -666,6 +674,7 @@ function updateGearSlotMismatchUI() {
         useDetectedButton.dataset.slot = "";
     }
 
+    syncGearActionAvailability();
     return state;
 }
 
@@ -1046,6 +1055,8 @@ function applyScreenshotExtraction(prefix, extraction, ocrConfidence) {
         extraction.detected.includes("Item type")
             ? extraction.fields.itemType
             : "";
+    prototypeState.itemConfirmed[prefix] = false;
+    updateItemConfirmationUI(prefix);
     updateGearSlotMismatchUI();
 
     ui.readout.hidden = false;
