@@ -9,7 +9,7 @@
 <body>
 <header class="site-header">
     <div>
-        <p class="eyebrow">Prototype 0.2D · Screenshot Intake</p>
+        <p class="eyebrow">Prototype 0.2D · Verified Decision Data</p>
         <h1>💀 Darkstorm</h1>
         <p>What should I do next, and why?</p>
     </div>
@@ -235,7 +235,7 @@
         </div>
 
         <p class="muted section-intro">
-            Add an in-game screenshot to either side, then choose <strong>Read Screenshot</strong>. Darkstorm will try to extract only the fields it recognizes with enough confidence and leave uncertain data blank or zero for you to review.
+            Add an in-game screenshot to either side, then choose <strong>Read Screenshot</strong>. Darkstorm captures decision-relevant item data, leaves uncertain values blank, and waits for the gamer to verify the item before comparison.
         </p>
 
         <div class="gear-grid">
@@ -268,18 +268,76 @@
                     <p class="muted screenshot-help">Reading happens in your browser for this prototype. The screenshot itself stays temporary and is not saved or exported.</p>
                 </div>
 
-                <label>Name <input id="equippedName" type="text"></label>
-                <label>Item Type <input id="equippedItemType" type="text"></label>
-                <label>Item Power <input id="equippedItemPower" type="number" min="0"></label>
-                <label>Armor <input id="equippedArmor" type="number" min="0"></label>
-                <label>Maximum Life <input id="equippedLife" type="number" min="0"></label>
-                <label>Resistance / DR <input id="equippedDefense" type="number" min="0"></label>
-                <label>Damage Value <input id="equippedDamage" type="number" min="0"></label>
-                <label>Aspect / Unique Power <input id="equippedPower" type="text"></label>
-                <label>Affixes <textarea id="equippedAffixes" rows="2"></textarea></label>
-                <label>Tempers <textarea id="equippedTempers" rows="2"></textarea></label>
-                <label>Masterwork <input id="equippedMasterwork" type="number" min="0" max="12"></label>
-                <label>Sockets <input id="equippedSockets" type="number" min="0" max="2"></label>
+                <div class="decision-data-heading">
+                    <div>
+                        <strong>Decision Data</strong>
+                        <p class="muted">Name is optional. Stats, rolls, powers, tempers, and sockets are what Darkstorm needs for the decision.</p>
+                    </div>
+                </div>
+
+                <div class="item-core-grid">
+                    <label>Name <span class="muted optional-label">(optional)</span>
+                        <input id="equippedName" type="text" placeholder="Leave blank if OCR is uncertain">
+                    </label>
+                    <label>Rarity / Quality
+                        <input id="equippedRarity" type="text" placeholder="Legendary, Unique, Rare…">
+                    </label>
+                    <label>Item Type
+                        <input id="equippedItemType" type="text">
+                    </label>
+                    <label>Item Power
+                        <input id="equippedItemPower" type="number" min="0">
+                    </label>
+                    <label>Base Armor
+                        <input id="equippedArmor" type="number" min="0">
+                    </label>
+                    <label>Base Weapon Damage
+                        <input id="equippedDamage" type="number" min="0">
+                    </label>
+                    <label>Required Level
+                        <input id="equippedRequiredLevel" type="number" min="0" max="100">
+                    </label>
+                </div>
+
+                <div class="structured-data-block">
+                    <div class="field-heading">
+                        <span>Affixes</span>
+                        <span class="muted">Stat · value · visible roll range</span>
+                    </div>
+                    <div id="equippedAffixRows" class="affix-rows" aria-label="Equipped item affixes"></div>
+                </div>
+
+                <div class="structured-data-block">
+                    <label>Aspect / Unique Power
+                        <textarea id="equippedPower" rows="3" placeholder="Power text that can change the recommendation"></textarea>
+                    </label>
+                    <div class="power-roll-grid">
+                        <label>Power Roll
+                            <input id="equippedPowerValue" type="text" placeholder="e.g. 17.5%">
+                        </label>
+                        <label>Visible Roll Low
+                            <input id="equippedPowerMin" type="text" placeholder="e.g. 15.0%">
+                        </label>
+                        <label>Visible Roll High
+                            <input id="equippedPowerMax" type="text" placeholder="e.g. 25.0%">
+                        </label>
+                    </div>
+                </div>
+
+                <div class="item-core-grid">
+                    <label>Temper Status / Notes
+                        <textarea id="equippedTempers" rows="2" placeholder="e.g. 3/3 or verified temper details"></textarea>
+                    </label>
+                    <label>Masterwork
+                        <input id="equippedMasterwork" type="number" min="0" max="12">
+                    </label>
+                    <label>Sockets
+                        <input id="equippedSockets" type="number" min="0" max="2">
+                    </label>
+                    <label>Socket Contents
+                        <input id="equippedSocketContents" type="text" placeholder="Empty, gem, rune…">
+                    </label>
+                </div>
 
                 <div class="item-confirmation" id="equippedConfirmationPanel">
                     <div class="item-confirmation-heading">
@@ -324,18 +382,76 @@
                     <p class="muted screenshot-help">Reading happens in your browser for this prototype. The screenshot itself stays temporary and is not saved or exported.</p>
                 </div>
 
-                <label>Name <input id="candidateName" type="text"></label>
-                <label>Item Type <input id="candidateItemType" type="text"></label>
-                <label>Item Power <input id="candidateItemPower" type="number" min="0"></label>
-                <label>Armor <input id="candidateArmor" type="number" min="0"></label>
-                <label>Maximum Life <input id="candidateLife" type="number" min="0"></label>
-                <label>Resistance / DR <input id="candidateDefense" type="number" min="0"></label>
-                <label>Damage Value <input id="candidateDamage" type="number" min="0"></label>
-                <label>Aspect / Unique Power <input id="candidatePower" type="text"></label>
-                <label>Affixes <textarea id="candidateAffixes" rows="2"></textarea></label>
-                <label>Tempers <textarea id="candidateTempers" rows="2"></textarea></label>
-                <label>Masterwork <input id="candidateMasterwork" type="number" min="0" max="12"></label>
-                <label>Sockets <input id="candidateSockets" type="number" min="0" max="2"></label>
+                <div class="decision-data-heading">
+                    <div>
+                        <strong>Decision Data</strong>
+                        <p class="muted">Name is optional. Stats, rolls, powers, tempers, and sockets are what Darkstorm needs for the decision.</p>
+                    </div>
+                </div>
+
+                <div class="item-core-grid">
+                    <label>Name <span class="muted optional-label">(optional)</span>
+                        <input id="candidateName" type="text" placeholder="Leave blank if OCR is uncertain">
+                    </label>
+                    <label>Rarity / Quality
+                        <input id="candidateRarity" type="text" placeholder="Legendary, Unique, Rare…">
+                    </label>
+                    <label>Item Type
+                        <input id="candidateItemType" type="text">
+                    </label>
+                    <label>Item Power
+                        <input id="candidateItemPower" type="number" min="0">
+                    </label>
+                    <label>Base Armor
+                        <input id="candidateArmor" type="number" min="0">
+                    </label>
+                    <label>Base Weapon Damage
+                        <input id="candidateDamage" type="number" min="0">
+                    </label>
+                    <label>Required Level
+                        <input id="candidateRequiredLevel" type="number" min="0" max="100">
+                    </label>
+                </div>
+
+                <div class="structured-data-block">
+                    <div class="field-heading">
+                        <span>Affixes</span>
+                        <span class="muted">Stat · value · visible roll range</span>
+                    </div>
+                    <div id="candidateAffixRows" class="affix-rows" aria-label="Candidate item affixes"></div>
+                </div>
+
+                <div class="structured-data-block">
+                    <label>Aspect / Unique Power
+                        <textarea id="candidatePower" rows="3" placeholder="Power text that can change the recommendation"></textarea>
+                    </label>
+                    <div class="power-roll-grid">
+                        <label>Power Roll
+                            <input id="candidatePowerValue" type="text" placeholder="e.g. 17.5%">
+                        </label>
+                        <label>Visible Roll Low
+                            <input id="candidatePowerMin" type="text" placeholder="e.g. 15.0%">
+                        </label>
+                        <label>Visible Roll High
+                            <input id="candidatePowerMax" type="text" placeholder="e.g. 25.0%">
+                        </label>
+                    </div>
+                </div>
+
+                <div class="item-core-grid">
+                    <label>Temper Status / Notes
+                        <textarea id="candidateTempers" rows="2" placeholder="e.g. 3/3 or verified temper details"></textarea>
+                    </label>
+                    <label>Masterwork
+                        <input id="candidateMasterwork" type="number" min="0" max="12">
+                    </label>
+                    <label>Sockets
+                        <input id="candidateSockets" type="number" min="0" max="2">
+                    </label>
+                    <label>Socket Contents
+                        <input id="candidateSocketContents" type="text" placeholder="Empty, gem, rune…">
+                    </label>
+                </div>
 
                 <div class="item-confirmation" id="candidateConfirmationPanel">
                     <div class="item-confirmation-heading">
@@ -386,7 +502,7 @@
 </main>
 
 <footer>
-    Darkstorm Prototype 0.2D · Cross-device screenshot intake, functional first.
+    Darkstorm Prototype 0.2D · Verified decision data, functional first.
 </footer>
 
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
