@@ -1265,20 +1265,29 @@ function parseDiabloItemText(rawText, slotKey) {
         const line = lines[index];
         if (stopPattern.test(line)) break;
 
-        const canonical = canonicalAffixLine(line);
-        const detail = structuredAffixFromLine(line);
-        if (canonical) {
-            affixLines.push(canonical);
-        }
-        if (detail) {
-            const key = [detail.stat, detail.value, detail.min, detail.max].join("|");
-            const alreadyCaptured = affixDetails.some(existing =>
-                [existing.stat, existing.value, existing.min, existing.max].join("|") === key
-            );
+        let detail = null;
+        let sourceLine = line;
 
-            if (!alreadyCaptured) {
-                affixDetails.push(detail);
-            }
+        // Tooltip values and their visible roll ranges frequently wrap across
+        // adjacent OCR lines. Reconstruct up to three lines before parsing.
+        for (let count = 1; count <= 3; count += 1) {
+            const joined = joinNearbyOcrLines(lines, index, count);
+            const candidate = structuredAffixFromLine(joined);
+            if (!candidate) continue;
+
+            detail = candidate;
+            sourceLine = joined;
+            if (candidate.min || candidate.max) break;
+        }
+
+        const canonical = canonicalAffixLine(sourceLine);
+        if (canonical) affixLines.push(canonical);
+
+        if (detail) {
+            const alreadyCaptured = affixDetails.some(existing =>
+                existing.stat === detail.stat
+            );
+            if (!alreadyCaptured) affixDetails.push(detail);
         }
 
         if (affixDetails.length >= MAX_AFFIX_ROWS) break;
