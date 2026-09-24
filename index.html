@@ -222,6 +222,18 @@
             </label>
         </div>
 
+        <div id="gearSlotMismatchWarning" class="warning-card" hidden>
+            <div>
+                <strong>Comparison slot mismatch detected.</strong>
+                <p id="gearSlotMismatchText">
+                    A screenshot appears to show a different equipment type than the selected comparison slot.
+                </p>
+            </div>
+            <button id="useDetectedSlotButton" type="button" class="secondary" hidden>
+                Use detected slot
+            </button>
+        </div>
+
         <p class="muted section-intro">
             Add an in-game screenshot to either side, then choose <strong>Read Screenshot</strong>. Darkstorm will try to extract only the fields it recognizes with enough confidence and leave uncertain data blank or zero for you to review.
         </p>
