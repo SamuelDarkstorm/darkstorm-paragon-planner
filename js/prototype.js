@@ -1162,7 +1162,7 @@ function parseDiabloItemText(rawText, slotKey) {
         rejected.push("Item type");
     }
 
-    const itemPowerLine = findLineWith(lines, /Item\s*Power/i);
+    const itemPowerLine = findNearbyOcrValue(lines, /Item\s*Power/i, Math.max(0, rarityIndex), 7);
     if (itemPowerLine) {
         const value = numberBeforeLabel(itemPowerLine.line, /Item\s*Power/i);
         if (value >= 100 && value <= 2000) {
@@ -1177,11 +1177,11 @@ function parseDiabloItemText(rawText, slotKey) {
         ? itemPowerLine.index + 1
         : Math.max(0, rarityIndex + 1);
 
-    const baseArmorLine = findLineWith(
+    const baseArmorLine = findNearbyOcrValue(
         lines,
         /\bArmor\b/i,
         baseSearchStart,
-        5
+        7
     );
 
     if (baseArmorLine) {
@@ -1194,7 +1194,7 @@ function parseDiabloItemText(rawText, slotKey) {
         }
     }
 
-    const lifeLine = findLineWith(lines, /Maximum\s+Life/i, baseSearchStart, 12);
+    const lifeLine = findNearbyOcrValue(lines, /Maximum\s+Life/i, baseSearchStart, 14);
     if (lifeLine) {
         const value = numberBeforeLabel(lifeLine.line, /Maximum\s+Life/i);
         const range = rangeFromLine(lifeLine.line);
