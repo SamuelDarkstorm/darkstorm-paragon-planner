@@ -1307,7 +1307,17 @@ function lineStatDefinitions(line) {
         }
     });
 
-    return definitions.sort((a, b) => a.charIndex - b.charIndex);
+    return definitions
+        .filter(definition => {
+            if (definition.stat !== "Armor") return true;
+
+            // Unsigned "1,275 Armor" and "910 Armor" are base item stats.
+            // Armor is an affix only when a signed value belongs to this row.
+            const before = source.slice(0, definition.charIndex);
+            const signedBefore = [...before.matchAll(/[+-]\s*[0-9OIlS,.]+(?:\.[0-9]+)?%?/g)];
+            return signedBefore.length > 0;
+        })
+        .sort((a, b) => a.charIndex - b.charIndex);
 }
 
 function signedValuesOnLine(line) {
@@ -1501,7 +1511,7 @@ function parseDiabloItemText(rawText, slotKey) {
     let cursor = Math.max(0, rarityIndex + 1);
     const firstAffixIndex = lines.findIndex((line, index) =>
         index >= cursor &&
-        Boolean(affixStatDefinitionFromText(line))
+        lineStatDefinitions(line).length > 0
     );
     const headerEnd = firstAffixIndex >= 0
         ? firstAffixIndex
@@ -1912,7 +1922,7 @@ function mergeScreenshotExtractions(primary, enhanced) {
             const start = Math.max(0, rarityIndex + 1);
             const firstAffix = passLines.findIndex((line, index) =>
                 index >= start &&
-                Boolean(affixStatDefinitionFromText(line))
+                lineStatDefinitions(line).length > 0
             );
             const end = firstAffix >= 0 ? firstAffix : Math.min(passLines.length, start + 14);
             const armor = baseArmorFromHeader(passLines, start, end);
