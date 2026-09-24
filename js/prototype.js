@@ -589,6 +589,28 @@ function cleanedOcrLines(text) {
         .filter(Boolean);
 }
 
+function joinNearbyOcrLines(lines, start, count = 3) {
+    return lines
+        .slice(start, Math.min(lines.length, start + count))
+        .join(" ")
+        .replace(/\s+/g, " ")
+        .trim();
+}
+
+function findNearbyOcrValue(lines, labelPattern, startIndex = 0, maxDistance = 8) {
+    const end = Math.min(lines.length, startIndex + maxDistance + 1);
+
+    for (let index = Math.max(0, startIndex); index < end; index += 1) {
+        for (let count = 1; count <= 3; count += 1) {
+            const joined = joinNearbyOcrLines(lines, index, count);
+            if (labelPattern.test(joined)) {
+                return { line: joined, index };
+            }
+        }
+    }
+    return null;
+}
+
 function itemTypeFromSlot(slotKey) {
     const map = {
         helm: "Helm",
