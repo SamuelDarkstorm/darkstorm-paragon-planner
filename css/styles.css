@@ -698,3 +698,19 @@ footer {
 .affix-row input {
     min-width: 0;
 }
+
+
+@media (max-width: 800px) {
+    .item-core-grid,
+    .power-roll-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .affix-row {
+        grid-template-columns: 28px 1fr;
+    }
+
+    .affix-row input {
+        grid-column: 2;
+    }
+}
