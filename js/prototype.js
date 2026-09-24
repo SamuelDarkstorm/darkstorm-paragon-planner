@@ -1230,47 +1230,102 @@ function firstSignedValue(text) {
         .replace(/S/g, "5");
 }
 
+function lineStatDefinitions(line) {
+    const source = String(line ?? "");
+    const definitions = [];
+    const statMap = [
+        [/maximum\s+life/ig, "Maximum Life", false],
+        [/fortify\s+generation/ig, "Fortify Generation", true],
+        [/healing\s+received/ig, "Healing Received", true],
+        [/cooldown\s+reduction/ig, "Cooldown Reduction", true],
+        [/attack\s+speed/ig, "Attack Speed", true],
+        [/movement\s+speed/ig, "Movement Speed", true],
+        [/critical\s+strike/ig, "Critical Strike", true],
+        [/damage\s+reduction/ig, "Damage Reduction", true],
+        [/lucky\s+hit/ig, "Lucky Hit", true],
+        [/all\s+resistance/ig, "All Resistance", true],
+        [/resistance/ig, "Resistance", true],
+        [/intelligence/ig, "Intelligence", false],
+        [/strength/ig, "Strength", false],
+        [/dexterity/ig, "Dexterity", false],
+        [/willpower/ig, "Willpower", false],
+        [/thorns/ig, "Thorns", false],
+        [/armor/ig, "Armor", false],
+        [/essence/ig, "Essence", false],
+        [/minion/ig, "Minion", false],
+        [/golem/ig, "Golem", false],
+        [/skeleton/ig, "Skeleton", false]
+    ];
+
+    statMap.forEach(([pattern, stat, percent]) => {
+        pattern.lastIndex = 0;
+        let match;
+        while ((match = pattern.exec(source)) !== null) {
+            // Avoid adding the generic Resistance anchor inside All Resistance.
+            if (stat === "Resistance" && /all\s+$/i.test(source.slice(Math.max(0, match.index - 5), match.index))) {
+                continue;
+            }
+            definitions.push({ stat, percent, charIndex: match.index });
+        }
+    });
+
+    return definitions.sort((a, b) => a.charIndex - b.charIndex);
+}
+
+function signedValuesOnLine(line) {
+    const source = String(line ?? "");
+    return [...source.matchAll(/[+-]\s*[0-9OIlS,.]+(?:\.[0-9]+)?%?/g)]
+        .map(match => ({
+            value: match[0]
+                .replace(/\s+/g, "")
+                .replace(/[Oo]/g, "0")
+                .replace(/[Il|]/g, "1")
+                .replace(/S/g, "5"),
+            charIndex: match.index ?? 0
+        }));
+}
+
+function rangeAfterPosition(line, start, end = Infinity) {
+    const source = String(line ?? "").slice(start, end);
+    return decimalRangeFromLine(source);
+}
+
 function affixAnchors(lines, startIndex, stopPattern) {
     const anchors = [];
 
-    for (let index = Math.max(0, startIndex); index < lines.length; index += 1) {
-        if (stopPattern.test(lines[index])) break;
+    for (let lineIndex = Math.max(0, startIndex); lineIndex < lines.length; lineIndex += 1) {
+        const line = lines[lineIndex];
+        if (stopPattern.test(line)) break;
 
-        // OCR frequently separates the signed value from the stat label.
-        // Look only at this line and the next two lines so one affix cannot
-        // steal a value or range from a later affix.
-        for (let lookahead = 0; lookahead <= 2 && index + lookahead < lines.length; lookahead += 1) {
-            const labelIndex = index + lookahead;
-            if (stopPattern.test(lines[labelIndex])) break;
+        const definitions = lineStatDefinitions(line);
+        if (!definitions.length) continue;
 
-            const definition = affixStatDefinitionFromText(lines[labelIndex]);
-            if (!definition) continue;
+        const signedValues = signedValuesOnLine(line);
 
-            const previousAnchor = anchors[anchors.length - 1];
-            if (previousAnchor?.labelIndex === labelIndex) break;
+        definitions.forEach((definition, definitionIndex) => {
+            const nextDefinition = definitions[definitionIndex + 1];
+            const segmentStart = definitionIndex === 0 ? 0 : definition.charIndex;
+            const segmentEnd = nextDefinition?.charIndex ?? line.length;
 
-            let value = "";
-            let valueIndex = -1;
+            // Prefer a signed value immediately before this label in the same
+            // OCR line. If several tooltip rows were collapsed into one line,
+            // the nearest preceding signed value belongs to this label.
+            const preceding = signedValues
+                .filter(value => value.charIndex < definition.charIndex)
+                .sort((a, b) => b.charIndex - a.charIndex)[0];
 
-            for (let candidate = Math.max(index, labelIndex - 1); candidate <= Math.min(lines.length - 1, labelIndex + 1); candidate += 1) {
-                if (candidate !== labelIndex && affixStatDefinitionFromText(lines[candidate])) continue;
-                const signed = firstSignedValue(lines[candidate]);
-                if (signed) {
-                    value = signed;
-                    valueIndex = candidate;
-                    break;
-                }
-            }
+            const inside = signedValues.find(value =>
+                value.charIndex >= segmentStart && value.charIndex < segmentEnd
+            );
 
+            const chosen = preceding ?? inside ?? null;
             anchors.push({
                 ...definition,
-                labelIndex,
-                valueIndex,
-                value
+                lineIndex,
+                value: chosen?.value ?? "",
+                valueCharIndex: chosen?.charIndex ?? -1
             });
-            index = labelIndex;
-            break;
-        }
+        });
     }
 
     return anchors;
@@ -1283,22 +1338,40 @@ function sequentialAffixes(lines, startIndex, stopPattern) {
 
     anchors.slice(0, MAX_AFFIX_ROWS).forEach((anchor, anchorIndex) => {
         const nextAnchor = anchors[anchorIndex + 1];
-        const blockStart = Math.max(startIndex, Math.min(
-            anchor.labelIndex,
-            anchor.valueIndex >= 0 ? anchor.valueIndex : anchor.labelIndex
-        ));
-        const blockEnd = nextAnchor
-            ? Math.max(blockStart + 1, Math.min(lines.length, nextAnchor.labelIndex))
-            : Math.min(lines.length, anchor.labelIndex + 4);
+        let range = null;
 
-        const blockLines = [];
-        for (let index = blockStart; index < blockEnd; index += 1) {
-            if (index > blockStart && stopPattern.test(lines[index])) break;
-            blockLines.push(lines[index]);
+        // First try the exact same OCR line, bounded by the next stat label
+        // when multiple tooltip rows were collapsed together.
+        const sameLineDefinitions = lineStatDefinitions(lines[anchor.lineIndex]);
+        const currentDefinitionIndex = sameLineDefinitions.findIndex(definition =>
+            definition.stat === anchor.stat &&
+            definition.charIndex === anchor.charIndex
+        );
+        const nextSameLine = currentDefinitionIndex >= 0
+            ? sameLineDefinitions[currentDefinitionIndex + 1]
+            : null;
+        range = rangeAfterPosition(
+            lines[anchor.lineIndex],
+            anchor.charIndex,
+            nextSameLine?.charIndex ?? Infinity
+        );
+
+        // If the range wrapped, only inspect following lines until the next
+        // recognized stat anchor. Never borrow a later stat's range.
+        if (!range) {
+            const nextLineBoundary = nextAnchor?.lineIndex ?? Math.min(lines.length, anchor.lineIndex + 3);
+            for (
+                let lineIndex = anchor.lineIndex + 1;
+                lineIndex < Math.min(lines.length, nextLineBoundary);
+                lineIndex += 1
+            ) {
+                if (stopPattern.test(lines[lineIndex])) break;
+                if (lineStatDefinitions(lines[lineIndex]).length) break;
+                range = decimalRangeFromLine(lines[lineIndex]);
+                if (range) break;
+            }
         }
 
-        const block = blockLines.join(" ");
-        const range = decimalRangeFromLine(block);
         const numeric = decimalFromOcr(anchor.value);
         const valueValid = Boolean(anchor.value) &&
             numeric > 0 &&
