@@ -1342,15 +1342,21 @@ function affixAnchors(lines, startIndex, stopPattern) {
             const segmentStart = definitionIndex === 0 ? 0 : definition.charIndex;
             const segmentEnd = nextDefinition?.charIndex ?? line.length;
 
-            // Prefer a signed value immediately before this label in the same
-            // OCR line. If several tooltip rows were collapsed into one line,
-            // the nearest preceding signed value belongs to this label.
+            // A tooltip row's signed value should be immediately before its
+            // own stat label. When OCR collapses several rows into one line,
+            // never reach backward across a previous recognized stat label.
+            const previousDefinition = definitions[definitionIndex - 1];
+            const lowerBound = previousDefinition?.charIndex ?? -1;
             const preceding = signedValues
-                .filter(value => value.charIndex < definition.charIndex)
+                .filter(value =>
+                    value.charIndex > lowerBound &&
+                    value.charIndex < definition.charIndex
+                )
                 .sort((a, b) => b.charIndex - a.charIndex)[0];
 
             const inside = signedValues.find(value =>
-                value.charIndex >= segmentStart && value.charIndex < segmentEnd
+                value.charIndex >= definition.charIndex &&
+                value.charIndex < segmentEnd
             );
 
             const chosen = preceding ?? inside ?? null;
@@ -1822,6 +1828,35 @@ function mergeScreenshotExtractions(primary, enhanced) {
                 merged.uncertain.push(detail.stat);
             }
         }
+    });
+
+    // Reparse the combined raw OCR after both passes are available. This
+    // preserves the actual top-to-bottom tooltip records and prevents a noisy
+    // enhanced pass from relabeling a good primary-pass value.
+    const combinedRawLines = cleanedOcrLines([
+        primary.rawText ?? "",
+        enhanced.rawText ?? ""
+    ].join("\n"));
+    const combinedStopPattern = /\b(?:imprinted|aspect|empty socket|requires level|sell value|durability|tempers?|mark as junk|compare|drop)\b/i;
+    const rawAffixes = sequentialAffixes(combinedRawLines, 0, combinedStopPattern).details;
+
+    rawAffixes.forEach(detail => {
+        if (!detail?.stat) return;
+        const existing = combinedAffixes.find(item =>
+            String(item.stat).toLowerCase() === String(detail.stat).toLowerCase()
+        );
+
+        if (!existing) {
+            if (combinedAffixes.length < MAX_AFFIX_ROWS) {
+                combinedAffixes.push({ ...detail });
+            }
+            return;
+        }
+
+        // Prefer a complete self-consistent record read directly from raw OCR.
+        if (detail.value) existing.value = detail.value;
+        if (detail.min) existing.min = detail.min;
+        if (detail.max) existing.max = detail.max;
     });
 
     combinedAffixes.forEach(detail => {
