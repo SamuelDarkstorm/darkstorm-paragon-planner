@@ -1008,6 +1008,59 @@ function numberBeforeLabel(line, labelPattern) {
     return integerFromOcr(tokens[tokens.length - 1][0]);
 }
 
+function nearbyUnsignedHeaderValue(lines, labelPattern, labelIndex, min, max) {
+    const candidates = [];
+
+    // Header OCR may put "850" and "Item Power" on separate adjacent lines.
+    // Stay inside a tiny window and reject signed values so affixes cannot be
+    // mistaken for base item stats.
+    for (
+        let index = Math.max(0, labelIndex - 2);
+        index <= Math.min(lines.length - 1, labelIndex + 1);
+        index += 1
+    ) {
+        const line = lines[index];
+        if (/[+-]\s*[0-9]/.test(line)) continue;
+
+        const labelMatch = line.match(labelPattern);
+        const searchable = labelMatch && labelMatch.index !== undefined
+            ? line.slice(0, labelMatch.index)
+            : line;
+
+        const tokens = [...searchable.matchAll(/\b[0-9OIlS][0-9OIlS,.]{1,7}\b/g)];
+        tokens.forEach(token => {
+            const value = integerFromOcr(token[0]);
+            if (value >= min && value <= max) {
+                candidates.push({
+                    value,
+                    distance: Math.abs(index - labelIndex),
+                    sameLine: index === labelIndex
+                });
+            }
+        });
+    }
+
+    candidates.sort((a, b) =>
+        Number(b.sameLine) - Number(a.sameLine) ||
+        a.distance - b.distance
+    );
+
+    return candidates[0]?.value ?? 0;
+}
+
+function findHeaderLabel(lines, pattern, startIndex, endIndex) {
+    const start = Math.max(0, startIndex);
+    const end = Math.min(lines.length, Math.max(start, endIndex));
+
+    for (let index = start; index < end; index += 1) {
+        if (pattern.test(lines[index])) {
+            return { line: lines[index], index };
+        }
+    }
+
+    return null;
+}
+
 function canonicalAffixLine(line) {
     if (/\b(?:increased|deals|makes|enemies|seconds|ground|vulnerable|imprinted|aspect)\b/i.test(line)) {
         return "";
@@ -1308,34 +1361,67 @@ function parseDiabloItemText(rawText, slotKey) {
 
     if (!fields.itemType) rejected.push("Item type");
 
-    // Read the tooltip header in order instead of searching the whole OCR dump.
+    // Bound header parsing before the first affix. This prevents a later
+    // +Armor affix from being mistaken for the item's base Armor.
     let cursor = Math.max(0, rarityIndex + 1);
-    const itemPowerLine = findNearbyOcrValue(lines, /Item\s*Power/i, cursor, 8);
+    const firstAffixIndex = lines.findIndex((line, index) =>
+        index >= cursor &&
+        Boolean(affixStatDefinitionFromText(line)) &&
+        Boolean(firstSignedValue(line))
+    );
+    const headerEnd = firstAffixIndex >= 0
+        ? firstAffixIndex
+        : Math.min(lines.length, cursor + 14);
+
+    const itemPowerLine = findHeaderLabel(
+        lines,
+        /Item\s*Power/i,
+        cursor,
+        headerEnd
+    );
     if (itemPowerLine) {
-        const value = numberBeforeLabel(itemPowerLine.line, /Item\s*Power/i);
-        if (value >= 100 && value <= 2000) {
+        const value = nearbyUnsignedHeaderValue(
+            lines,
+            /Item\s*Power/i,
+            itemPowerLine.index,
+            100,
+            2000
+        );
+        if (value) {
             fields.itemPower = value;
             detected.push("Item power");
         } else {
             uncertain.push("Item power");
         }
-        cursor = itemPowerLine.index + 1;
     } else {
         uncertain.push("Item power");
     }
 
-    const baseArmorLine = findNearbyOcrValue(lines, /\bArmor\b/i, cursor, 5);
+    const baseArmorLine = findHeaderLabel(
+        lines,
+        /\bArmor\b/i,
+        cursor,
+        headerEnd
+    );
     if (baseArmorLine) {
-        const value = numberBeforeLabel(baseArmorLine.line, /\bArmor\b/i);
-        const looksLikeAffix = /[+-]\s*[0-9]/.test(baseArmorLine.line);
-        if (value > 0 && value < 100000 && !looksLikeAffix) {
+        const value = nearbyUnsignedHeaderValue(
+            lines,
+            /\bArmor\b/i,
+            baseArmorLine.index,
+            100,
+            100000
+        );
+        if (value) {
             fields.armor = value;
             detected.push("Armor");
-            cursor = baseArmorLine.index + 1;
         } else {
             uncertain.push("Armor");
         }
     }
+
+    // Affix parsing starts after the bounded header, regardless of whether
+    // every header field was readable.
+    cursor = headerEnd;
 
     if (slotKey === "mainHand" || slotKey === "offHand") {
         const damageLine = findNearbyOcrValue(lines, /(?:Weapon\s+)?Damage/i, cursor, 5);
