@@ -1133,38 +1133,38 @@ function powerLooksUsable(power) {
     return true;
 }
 
-function affixStatFromText(text) {
+function affixStatDefinitionFromText(text) {
     const source = String(text ?? "");
-    const signed = source.match(/[+-]\s*[0-9OIlS,.]+(?:\.[0-9]+)?%?/);
-    const localText = signed && signed.index !== undefined
-        ? source.slice(signed.index, signed.index + 52)
-        : source.slice(0, 52);
-
     const statMap = [
-        [/maximum\s+life/i, "Maximum Life"],
-        [/fortify\s+generation/i, "Fortify Generation"],
-        [/healing\s+received/i, "Healing Received"],
-        [/cooldown\s+reduction/i, "Cooldown Reduction"],
-        [/attack\s+speed/i, "Attack Speed"],
-        [/movement\s+speed/i, "Movement Speed"],
-        [/critical\s+strike/i, "Critical Strike"],
-        [/damage\s+reduction/i, "Damage Reduction"],
-        [/lucky\s+hit/i, "Lucky Hit"],
-        [/all\s+resistance/i, "All Resistance"],
-        [/resistance/i, "Resistance"],
-        [/intelligence/i, "Intelligence"],
-        [/strength/i, "Strength"],
-        [/dexterity/i, "Dexterity"],
-        [/willpower/i, "Willpower"],
-        [/thorns/i, "Thorns"],
-        [/armor/i, "Armor"],
-        [/essence/i, "Essence"],
-        [/minion/i, "Minion"],
-        [/golem/i, "Golem"],
-        [/skeleton/i, "Skeleton"]
+        [/maximum\s+life/i, "Maximum Life", false],
+        [/fortify\s+generation/i, "Fortify Generation", true],
+        [/healing\s+received/i, "Healing Received", true],
+        [/cooldown\s+reduction/i, "Cooldown Reduction", true],
+        [/attack\s+speed/i, "Attack Speed", true],
+        [/movement\s+speed/i, "Movement Speed", true],
+        [/critical\s+strike/i, "Critical Strike", true],
+        [/damage\s+reduction/i, "Damage Reduction", true],
+        [/lucky\s+hit/i, "Lucky Hit", true],
+        [/all\s+resistance/i, "All Resistance", true],
+        [/resistance/i, "Resistance", true],
+        [/intelligence/i, "Intelligence", false],
+        [/strength/i, "Strength", false],
+        [/dexterity/i, "Dexterity", false],
+        [/willpower/i, "Willpower", false],
+        [/thorns/i, "Thorns", false],
+        [/armor/i, "Armor", false],
+        [/essence/i, "Essence", false],
+        [/minion/i, "Minion", false],
+        [/golem/i, "Golem", false],
+        [/skeleton/i, "Skeleton", false]
     ];
 
-    return statMap.find(([pattern]) => pattern.test(localText))?.[1] ?? "";
+    const match = statMap.find(([pattern]) => pattern.test(source));
+    return match ? { stat: match[1], percent: match[2] } : null;
+}
+
+function affixStatFromText(text) {
+    return affixStatDefinitionFromText(text)?.stat ?? "";
 }
 
 function firstSignedValue(text) {
@@ -1177,51 +1177,94 @@ function firstSignedValue(text) {
         .replace(/S/g, "5");
 }
 
+function affixAnchors(lines, startIndex, stopPattern) {
+    const anchors = [];
+
+    for (let index = Math.max(0, startIndex); index < lines.length; index += 1) {
+        if (stopPattern.test(lines[index])) break;
+
+        // OCR frequently separates the signed value from the stat label.
+        // Look only at this line and the next two lines so one affix cannot
+        // steal a value or range from a later affix.
+        for (let lookahead = 0; lookahead <= 2 && index + lookahead < lines.length; lookahead += 1) {
+            const labelIndex = index + lookahead;
+            if (stopPattern.test(lines[labelIndex])) break;
+
+            const definition = affixStatDefinitionFromText(lines[labelIndex]);
+            if (!definition) continue;
+
+            const previousAnchor = anchors[anchors.length - 1];
+            if (previousAnchor?.labelIndex === labelIndex) break;
+
+            let value = "";
+            let valueIndex = -1;
+
+            for (let candidate = Math.max(index, labelIndex - 1); candidate <= Math.min(lines.length - 1, labelIndex + 1); candidate += 1) {
+                if (candidate !== labelIndex && affixStatDefinitionFromText(lines[candidate])) continue;
+                const signed = firstSignedValue(lines[candidate]);
+                if (signed) {
+                    value = signed;
+                    valueIndex = candidate;
+                    break;
+                }
+            }
+
+            anchors.push({
+                ...definition,
+                labelIndex,
+                valueIndex,
+                value
+            });
+            index = labelIndex;
+            break;
+        }
+    }
+
+    return anchors;
+}
+
 function sequentialAffixes(lines, startIndex, stopPattern) {
     const details = [];
     const uncertain = [];
-    let index = Math.max(0, startIndex);
+    const anchors = affixAnchors(lines, startIndex, stopPattern);
 
-    while (index < lines.length && details.length < MAX_AFFIX_ROWS) {
-        if (stopPattern.test(lines[index])) break;
+    anchors.slice(0, MAX_AFFIX_ROWS).forEach((anchor, anchorIndex) => {
+        const nextAnchor = anchors[anchorIndex + 1];
+        const blockStart = Math.max(startIndex, Math.min(
+            anchor.labelIndex,
+            anchor.valueIndex >= 0 ? anchor.valueIndex : anchor.labelIndex
+        ));
+        const blockEnd = nextAnchor
+            ? Math.max(blockStart + 1, Math.min(lines.length, nextAnchor.labelIndex))
+            : Math.min(lines.length, anchor.labelIndex + 4);
 
-        const stat = affixStatFromText(lines[index]);
-        const signed = firstSignedValue(lines[index]);
-
-        if (!stat || !signed) {
-            index += 1;
-            continue;
+        const blockLines = [];
+        for (let index = blockStart; index < blockEnd; index += 1) {
+            if (index > blockStart && stopPattern.test(lines[index])) break;
+            blockLines.push(lines[index]);
         }
 
-        let block = lines[index];
-        let next = index + 1;
-
-        // A tooltip affix owns only its following wrapped lines. Stop as soon
-        // as another signed stat, power section, or metadata section begins.
-        while (next < lines.length && next <= index + 4) {
-            const nextLine = lines[next];
-            if (stopPattern.test(nextLine)) break;
-            if (affixStatFromText(nextLine) && firstSignedValue(nextLine)) break;
-            block += " " + nextLine;
-            next += 1;
-        }
-
+        const block = blockLines.join(" ");
         const range = decimalRangeFromLine(block);
-        const numeric = decimalFromOcr(signed);
-        const isPercent = signed.includes("%") || /%/.test(block);
-        const valueValid = numeric > 0 &&
+        const numeric = decimalFromOcr(anchor.value);
+        const valueValid = Boolean(anchor.value) &&
+            numeric > 0 &&
             (!range || (numeric >= range.low && numeric <= range.high));
 
+        const percentSuffix = anchor.percent ? "%" : "";
         details.push({
-            stat,
-            value: valueValid ? signed : "",
-            min: range ? String(range.low) + (isPercent ? "%" : "") : "",
-            max: range ? String(range.high) + (isPercent ? "%" : "") : ""
+            stat: anchor.stat,
+            value: valueValid ? (
+                anchor.percent && !anchor.value.includes("%")
+                    ? anchor.value + "%"
+                    : anchor.value
+            ) : "",
+            min: range ? String(range.low) + percentSuffix : "",
+            max: range ? String(range.high) + percentSuffix : ""
         });
 
-        if (!valueValid) uncertain.push(stat);
-        index = Math.max(index + 1, next);
-    }
+        if (!valueValid) uncertain.push(anchor.stat);
+    });
 
     return { details, uncertain };
 }
