@@ -1133,6 +1133,92 @@ function powerLooksUsable(power) {
     return true;
 }
 
+function affixStatFromText(text) {
+    const statMap = [
+        [/maximum\s+life/i, "Maximum Life"],
+        [/fortify\s+generation/i, "Fortify Generation"],
+        [/healing\s+received/i, "Healing Received"],
+        [/cooldown\s+reduction/i, "Cooldown Reduction"],
+        [/attack\s+speed/i, "Attack Speed"],
+        [/movement\s+speed/i, "Movement Speed"],
+        [/critical\s+strike/i, "Critical Strike"],
+        [/damage\s+reduction/i, "Damage Reduction"],
+        [/lucky\s+hit/i, "Lucky Hit"],
+        [/all\s+resistance/i, "All Resistance"],
+        [/resistance/i, "Resistance"],
+        [/intelligence/i, "Intelligence"],
+        [/strength/i, "Strength"],
+        [/dexterity/i, "Dexterity"],
+        [/willpower/i, "Willpower"],
+        [/thorns/i, "Thorns"],
+        [/armor/i, "Armor"],
+        [/essence/i, "Essence"],
+        [/minion/i, "Minion"],
+        [/golem/i, "Golem"],
+        [/skeleton/i, "Skeleton"]
+    ];
+    return statMap.find(([pattern]) => pattern.test(text))?.[1] ?? "";
+}
+
+function firstSignedValue(text) {
+    const match = String(text ?? "").match(/[+-]\s*[0-9OIlS,.]+(?:\.[0-9]+)?%?/);
+    if (!match) return "";
+    return match[0]
+        .replace(/\s+/g, "")
+        .replace(/[Oo]/g, "0")
+        .replace(/[Il|]/g, "1")
+        .replace(/S/g, "5");
+}
+
+function sequentialAffixes(lines, startIndex, stopPattern) {
+    const details = [];
+    const uncertain = [];
+    let index = Math.max(0, startIndex);
+
+    while (index < lines.length && details.length < MAX_AFFIX_ROWS) {
+        if (stopPattern.test(lines[index])) break;
+
+        const stat = affixStatFromText(lines[index]);
+        const signed = firstSignedValue(lines[index]);
+
+        if (!stat || !signed) {
+            index += 1;
+            continue;
+        }
+
+        let block = lines[index];
+        let next = index + 1;
+
+        // A tooltip affix owns only its following wrapped lines. Stop as soon
+        // as another signed stat, power section, or metadata section begins.
+        while (next < lines.length && next <= index + 2) {
+            const nextLine = lines[next];
+            if (stopPattern.test(nextLine)) break;
+            if (affixStatFromText(nextLine) && firstSignedValue(nextLine)) break;
+            block += " " + nextLine;
+            next += 1;
+        }
+
+        const range = decimalRangeFromLine(block);
+        const numeric = decimalFromOcr(signed);
+        const isPercent = signed.includes("%") || /%/.test(block);
+        const valueValid = numeric > 0 &&
+            (!range || (numeric >= range.low && numeric <= range.high));
+
+        details.push({
+            stat,
+            value: valueValid ? signed : "",
+            min: range ? String(range.low) + (isPercent ? "%" : "") : "",
+            max: range ? String(range.high) + (isPercent ? "%" : "") : ""
+        });
+
+        if (!valueValid) uncertain.push(stat);
+        index = Math.max(index + 1, next);
+    }
+
+    return { details, uncertain };
+}
+
 function parseDiabloItemText(rawText, slotKey) {
     const lines = cleanedOcrLines(rawText);
     const joined = lines.join("\n");
@@ -1170,178 +1256,98 @@ function parseDiabloItemText(rawText, slotKey) {
         }
     }
 
-    if (!fields.itemType) {
-        rejected.push("Item type");
-    }
+    if (!fields.itemType) rejected.push("Item type");
 
-    const itemPowerLine = findNearbyOcrValue(lines, /Item\s*Power/i, Math.max(0, rarityIndex), 7);
+    // Read the tooltip header in order instead of searching the whole OCR dump.
+    let cursor = Math.max(0, rarityIndex + 1);
+    const itemPowerLine = findNearbyOcrValue(lines, /Item\s*Power/i, cursor, 8);
     if (itemPowerLine) {
         const value = numberBeforeLabel(itemPowerLine.line, /Item\s*Power/i);
         if (value >= 100 && value <= 2000) {
             fields.itemPower = value;
             detected.push("Item power");
         } else {
-            rejected.push("Item power");
+            uncertain.push("Item power");
         }
+        cursor = itemPowerLine.index + 1;
+    } else {
+        uncertain.push("Item power");
     }
 
-    const baseSearchStart = itemPowerLine
-        ? itemPowerLine.index + 1
-        : Math.max(0, rarityIndex + 1);
-
-    const baseArmorLine = findNearbyOcrValue(
-        lines,
-        /\bArmor\b/i,
-        baseSearchStart,
-        7
-    );
-
+    const baseArmorLine = findNearbyOcrValue(lines, /\bArmor\b/i, cursor, 5);
     if (baseArmorLine) {
         const value = numberBeforeLabel(baseArmorLine.line, /\bArmor\b/i);
-        if (value > 0 && value < 100000) {
+        const looksLikeAffix = /[+-]\s*[0-9]/.test(baseArmorLine.line);
+        if (value > 0 && value < 100000 && !looksLikeAffix) {
             fields.armor = value;
             detected.push("Armor");
+            cursor = baseArmorLine.index + 1;
         } else {
-            rejected.push("Armor");
-        }
-    }
-
-    const lifeLine = findNearbyOcrValue(lines, /Maximum\s+Life/i, baseSearchStart, 14);
-    if (lifeLine) {
-        const value = numberBeforeLabel(lifeLine.line, /Maximum\s+Life/i);
-        const range = rangeFromLine(lifeLine.line);
-        const withinVisibleRange = !range ||
-            (value >= range.low * 0.7 && value <= range.high * 1.3);
-
-        const plausibleWithoutRange = range ? true : value <= 10000;
-
-        if (
-            value > 0 &&
-            value <= 10000 &&
-            withinVisibleRange &&
-            plausibleWithoutRange
-        ) {
-            fields.life = value;
-            detected.push("Maximum Life");
-        } else {
-            rejected.push("Maximum Life");
+            uncertain.push("Armor");
         }
     }
 
     if (slotKey === "mainHand" || slotKey === "offHand") {
-        const damageLine = findLineWith(
-            lines,
-            /(?:Weapon\s+)?Damage/i,
-            baseSearchStart,
-            5
-        );
-
+        const damageLine = findNearbyOcrValue(lines, /(?:Weapon\s+)?Damage/i, cursor, 5);
         if (damageLine) {
-            const value = numberBeforeLabel(
-                damageLine.line,
-                /(?:Weapon\s+)?Damage/i
-            );
-
+            const value = numberBeforeLabel(damageLine.line, /(?:Weapon\s+)?Damage/i);
             if (value > 0 && value < 1000000) {
                 fields.damage = value;
                 detected.push("Damage");
-            } else {
-                rejected.push("Damage");
+                cursor = damageLine.index + 1;
             }
         }
     }
 
-    const baseStatIndex = Math.max(
-        rarityIndex,
-        itemPowerLine?.index ?? -1,
-        baseArmorLine?.index ?? -1
-    );
-    const affixStart = baseStatIndex + 1;
-    const stopPattern = /\b(?:imprinted|aspect|empty socket|requires level|sell value|durability|mark as junk|compare|drop)\b/i;
-    const affixLines = [];
-    const affixDetails = [];
+    const stopPattern = /\b(?:imprinted|aspect|empty socket|requires level|sell value|durability|tempers?|mark as junk|compare|drop)\b/i;
+    const parsedAffixes = sequentialAffixes(lines, cursor, stopPattern);
+    fields.affixDetails = parsedAffixes.details;
+    fields.affixes = formatAffixDetails(fields.affixDetails);
+    uncertain.push(...parsedAffixes.uncertain);
+    if (fields.affixDetails.length) detected.push("Affixes");
 
-    for (let index = Math.max(0, affixStart); index < lines.length; index += 1) {
-        const line = lines[index];
-        if (stopPattern.test(line)) break;
-
-        let detail = null;
-        let sourceLine = line;
-
-        // Tooltip values and their visible roll ranges frequently wrap across
-        // adjacent OCR lines. Reconstruct up to three lines before parsing.
-        for (let count = 1; count <= 3; count += 1) {
-            const joined = joinNearbyOcrLines(lines, index, count);
-            const candidate = structuredAffixFromLine(joined);
-            if (!candidate) continue;
-
-            detail = candidate;
-            sourceLine = joined;
-            if (candidate.min || candidate.max) break;
-        }
-
-        const canonical = canonicalAffixLine(sourceLine);
-        if (canonical) affixLines.push(canonical);
-
-        if (detail) {
-            const alreadyCaptured = affixDetails.some(existing =>
-                existing.stat === detail.stat
-            );
-            if (!alreadyCaptured) affixDetails.push(detail);
-        }
-
-        if (affixDetails.length >= MAX_AFFIX_ROWS) break;
+    const lifeDetail = fields.affixDetails.find(detail => detail.stat === "Maximum Life");
+    if (lifeDetail?.value) {
+        fields.life = integerFromOcr(lifeDetail.value);
+        detected.push("Maximum Life");
     }
 
-    if (affixDetails.length) {
-        fields.affixDetails = affixDetails.slice(0, MAX_AFFIX_ROWS);
-        fields.affixes = formatAffixDetails(fields.affixDetails);
-        detected.push("Affixes");
-    } else if (affixLines.length) {
-        fields.affixes = [...new Set(affixLines)].join("\n");
-        detected.push("Affixes");
-    }
-
-    const powerStart = lines.findIndex(line => /\b(?:imprinted|aspect)\s*:/i.test(line));
+    // Power starts where the tooltip says Imprinted or Aspect and owns the
+    // following prose until sockets / level / sell / durability metadata.
+    const powerStart = lines.findIndex(line => /\b(?:imprinted|aspect)\b/i.test(line));
     if (powerStart >= 0) {
         const powerLines = [];
-
-        for (let index = powerStart; index < lines.length && powerLines.length < 6; index += 1) {
+        for (let index = powerStart; index < lines.length && powerLines.length < 9; index += 1) {
             const line = lines[index];
-
             if (
                 index > powerStart &&
-                /\b(?:empty socket|requires level|sell value|durability|equip|compare|mark as junk|drop|scroll)\b/i.test(line)
-            ) {
-                break;
-            }
-
+                /\b(?:empty socket|requires level|sell value|durability|equip|compare|mark as junk|drop|scroll|tempers?)\b/i.test(line)
+            ) break;
             powerLines.push(line);
         }
 
-        const power = powerLines
-            .join(" ")
-            .replace(/^.*?\b(?:imprinted|aspect)\s*:\s*/i, "")
+        const power = powerLines.join(" ")
+            .replace(/^.*?\b(?:imprinted|aspect)\b\s*:?\s*/i, "")
             .trim();
 
         if (powerLooksUsable(power)) {
             fields.power = power;
             detected.push("Aspect / unique power");
-
             const visibleRange = decimalRangeFromLine(power);
             const firstPercent = power.match(/([0-9OIlS,.]+(?:\.[0-9]+)?)\s*%/i);
-
             if (visibleRange && firstPercent) {
                 const roll = decimalFromOcr(firstPercent[1]);
-                if (roll >= visibleRange.low * 0.7 && roll <= visibleRange.high * 1.3) {
+                fields.powerMin = String(visibleRange.low) + "%";
+                fields.powerMax = String(visibleRange.high) + "%";
+                if (roll >= visibleRange.low && roll <= visibleRange.high) {
                     fields.powerValue = String(roll) + "%";
-                    fields.powerMin = String(visibleRange.low) + "%";
-                    fields.powerMax = String(visibleRange.high) + "%";
                     detected.push("Power roll");
+                } else {
+                    uncertain.push("Power roll");
                 }
             }
         } else if (power) {
-            rejected.push("Aspect / unique power");
+            uncertain.push("Aspect / unique power");
         }
     }
 
