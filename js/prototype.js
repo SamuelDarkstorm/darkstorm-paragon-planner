@@ -569,6 +569,21 @@ function canonicalAffixLine(line) {
         .replace(/[Il|]/g, "1")
         .replace(/S/g, "5");
 
+    const numericValue = decimalFromOcr(rawValue);
+    const isPercent = rawValue.includes("%");
+
+    const plausible = (() => {
+        if (!numericValue) return false;
+        if (isPercent) return numericValue <= 100;
+        if (/^(Intelligence|Strength|Dexterity|Willpower)$/.test(label)) {
+            return numericValue <= 1000;
+        }
+        if (label === "Maximum Life") return numericValue <= 10000;
+        if (/^(Armor|Thorns)$/.test(label)) return numericValue <= 20000;
+        return numericValue <= 100000;
+    })();
+
+    if (!plausible) return "";
     return `${rawValue} ${label}`;
 }
 
@@ -619,8 +634,7 @@ function parseDiabloItemText(rawText, slotKey) {
     }
 
     if (!fields.itemType) {
-        fields.itemType = itemTypeFromSlot(slotKey);
-        inferred.push("Item type from comparison slot");
+        rejected.push("Item type");
     }
 
     const itemPowerLine = findLineWith(lines, /Item\s*Power/i);
@@ -662,7 +676,14 @@ function parseDiabloItemText(rawText, slotKey) {
         const withinVisibleRange = !range ||
             (value >= range.low * 0.7 && value <= range.high * 1.3);
 
-        if (value > 0 && value < 100000 && withinVisibleRange) {
+        const plausibleWithoutRange = range ? true : value <= 10000;
+
+        if (
+            value > 0 &&
+            value <= 10000 &&
+            withinVisibleRange &&
+            plausibleWithoutRange
+        ) {
             fields.life = value;
             detected.push("Maximum Life");
         } else {
