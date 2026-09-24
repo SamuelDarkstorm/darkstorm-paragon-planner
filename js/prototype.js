@@ -1061,6 +1061,41 @@ function findHeaderLabel(lines, pattern, startIndex, endIndex) {
     return null;
 }
 
+function baseArmorFromHeader(lines, startIndex, endIndex) {
+    const start = Math.max(0, startIndex);
+    const end = Math.min(lines.length, Math.max(start, endIndex));
+
+    for (let index = start; index < end; index += 1) {
+        const line = lines[index];
+        const armorMatch = line.match(/\bArmor\b/i);
+        if (!armorMatch || armorMatch.index === undefined) continue;
+        if (/[+-]\s*[0-9]/.test(line)) continue;
+
+        // Diablo may append its own comparison text after the base armor,
+        // e.g. "910 Armor (-15.2% Toughness)". Only inspect text before Armor.
+        const beforeArmor = line.slice(0, armorMatch.index);
+        const sameLineTokens = [...beforeArmor.matchAll(/[0-9OIlS][0-9OIlS,.]{1,7}/g)];
+        if (sameLineTokens.length) {
+            const value = integerFromOcr(sameLineTokens[sameLineTokens.length - 1][0]);
+            if (value >= 100 && value <= 100000) return value;
+        }
+
+        // If OCR split the number from "Armor", accept only a nearby unsigned
+        // line that is still inside the bounded tooltip header.
+        for (let previous = index - 1; previous >= Math.max(start, index - 2); previous -= 1) {
+            const candidate = lines[previous];
+            if (/[+-]\s*[0-9]/.test(candidate)) break;
+            if (affixStatDefinitionFromText(candidate)) break;
+            const tokens = [...candidate.matchAll(/\b[0-9OIlS][0-9OIlS,.]{2,7}\b/g)];
+            if (!tokens.length) continue;
+            const value = integerFromOcr(tokens[tokens.length - 1][0]);
+            if (value >= 100 && value <= 100000) return value;
+        }
+    }
+
+    return 0;
+}
+
 function canonicalAffixLine(line) {
     if (/\b(?:increased|deals|makes|enemies|seconds|ground|vulnerable|imprinted|aspect)\b/i.test(line)) {
         return "";
@@ -1470,26 +1505,12 @@ function parseDiabloItemText(rawText, slotKey) {
         uncertain.push("Item power");
     }
 
-    const baseArmorLine = findHeaderLabel(
-        lines,
-        /\bArmor\b/i,
-        cursor,
-        headerEnd
-    );
-    if (baseArmorLine) {
-        const value = nearbyUnsignedHeaderValue(
-            lines,
-            /\bArmor\b/i,
-            baseArmorLine.index,
-            100,
-            100000
-        );
-        if (value) {
-            fields.armor = value;
-            detected.push("Armor");
-        } else {
-            uncertain.push("Armor");
-        }
+    const baseArmor = baseArmorFromHeader(lines, cursor, headerEnd);
+    if (baseArmor) {
+        fields.armor = baseArmor;
+        detected.push("Armor");
+    } else {
+        uncertain.push("Armor");
     }
 
     // Affix parsing starts after the bounded header, regardless of whether
