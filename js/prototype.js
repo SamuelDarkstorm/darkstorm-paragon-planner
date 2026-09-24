@@ -1134,6 +1134,12 @@ function powerLooksUsable(power) {
 }
 
 function affixStatFromText(text) {
+    const source = String(text ?? "");
+    const signed = source.match(/[+-]\s*[0-9OIlS,.]+(?:\.[0-9]+)?%?/);
+    const localText = signed && signed.index !== undefined
+        ? source.slice(signed.index, signed.index + 52)
+        : source.slice(0, 52);
+
     const statMap = [
         [/maximum\s+life/i, "Maximum Life"],
         [/fortify\s+generation/i, "Fortify Generation"],
@@ -1157,7 +1163,8 @@ function affixStatFromText(text) {
         [/golem/i, "Golem"],
         [/skeleton/i, "Skeleton"]
     ];
-    return statMap.find(([pattern]) => pattern.test(text))?.[1] ?? "";
+
+    return statMap.find(([pattern]) => pattern.test(localText))?.[1] ?? "";
 }
 
 function firstSignedValue(text) {
@@ -1191,7 +1198,7 @@ function sequentialAffixes(lines, startIndex, stopPattern) {
 
         // A tooltip affix owns only its following wrapped lines. Stop as soon
         // as another signed stat, power section, or metadata section begins.
-        while (next < lines.length && next <= index + 2) {
+        while (next < lines.length && next <= index + 4) {
             const nextLine = lines[next];
             if (stopPattern.test(nextLine)) break;
             if (affixStatFromText(nextLine) && firstSignedValue(nextLine)) break;
@@ -1555,23 +1562,58 @@ function mergeScreenshotExtractions(primary, enhanced) {
         ? enhanced.fields.affixDetails
         : affixDetailsFromLegacyText(enhanced.fields?.affixes);
 
-    const combinedAffixes = [...primaryAffixes];
-    enhancedAffixes.forEach(detail => {
-        const matchIndex = combinedAffixes.findIndex(existing =>
-            String(existing.stat ?? "").toLowerCase() ===
-            String(detail.stat ?? "").toLowerCase()
+    const combinedAffixes = [];
+
+    [...primaryAffixes, ...enhancedAffixes].forEach(detail => {
+        if (!detail?.stat) return;
+
+        const existing = combinedAffixes.find(item =>
+            String(item.stat).toLowerCase() === String(detail.stat).toLowerCase()
         );
 
-        if (matchIndex < 0 && combinedAffixes.length < MAX_AFFIX_ROWS) {
-            combinedAffixes.push(detail);
-        } else if (matchIndex >= 0) {
-            const existing = combinedAffixes[matchIndex];
-            combinedAffixes[matchIndex] = {
-                stat: existing.stat || detail.stat,
-                value: existing.value || detail.value,
-                min: existing.min || detail.min,
-                max: existing.max || detail.max
-            };
+        if (!existing) {
+            if (combinedAffixes.length < MAX_AFFIX_ROWS) {
+                combinedAffixes.push({ ...detail });
+            }
+            return;
+        }
+
+        if (!existing.min && detail.min) existing.min = detail.min;
+        if (!existing.max && detail.max) existing.max = detail.max;
+
+        if (existing.value && detail.value && existing.value !== detail.value) {
+            existing.value = "";
+            merged.uncertain.push(detail.stat);
+            return;
+        }
+
+        if (!existing.value && detail.value) {
+            const numeric = decimalFromOcr(detail.value);
+            const low = decimalFromOcr(existing.min);
+            const high = decimalFromOcr(existing.max);
+            const fitsRange = !low || !high || (numeric >= low && numeric <= high);
+
+            if (fitsRange) {
+                existing.value = detail.value;
+            } else {
+                merged.uncertain.push(detail.stat);
+            }
+        }
+    });
+
+    combinedAffixes.forEach(detail => {
+        const numeric = decimalFromOcr(detail.value);
+        const low = decimalFromOcr(detail.min);
+        const high = decimalFromOcr(detail.max);
+
+        if (
+            detail.value &&
+            low &&
+            high &&
+            (numeric < low || numeric > high)
+        ) {
+            detail.value = "";
+            merged.uncertain.push(detail.stat);
         }
     });
 
