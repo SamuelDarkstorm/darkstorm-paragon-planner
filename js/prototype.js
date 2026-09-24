@@ -204,6 +204,11 @@ function loadSelectedSlotFromLoadout() {
     const slotKey = el.comparisonSlot.value;
     const equippedItem = getLoadoutItem(slotKey);
     setGear("equipped", equippedItem);
+
+    if (itemConfirmationRequired("equipped")) {
+        invalidateItemConfirmation("equipped", { resetComparison: false });
+    }
+
     prototypeState.lastGearComparison = null;
     prototypeState.candidateEquipped = false;
     resetGearVerdict();
@@ -212,6 +217,11 @@ function loadSelectedSlotFromLoadout() {
 
 
 const SKILL_SLOT_IDS = ["skill1", "skill2", "skill3", "skill4", "skill5", "skill6"];
+
+const GEAR_FIELD_SUFFIXES = [
+    "Name", "ItemType", "ItemPower", "Armor", "Life", "Defense",
+    "Damage", "Power", "Affixes", "Tempers", "Masterwork", "Sockets"
+];
 
 const ids = [
     "characterName", "className", "realm", "level", "difficulty", "goal",
@@ -2091,6 +2101,7 @@ function resetPrototype() {
 
 renderEquipmentLoadout();
 wireScreenshotIntake();
+updateAllItemConfirmationUI();
 
 document.getElementById("loadDemoButton").addEventListener("click", () => {
     populateForm(DARKSTORM_DEMO_CHARACTER);
@@ -2138,6 +2149,24 @@ document.getElementById("compareGearButton").addEventListener("click", () => {
     if (comparison) analyzeBuild();
 });
 document.getElementById("equipCandidateButton").addEventListener("click", equipCandidate);
+
+SCREENSHOT_PREFIXES.forEach(prefix => {
+    document.getElementById(`${prefix}ConfirmButton`).addEventListener(
+        "click",
+        () => confirmItemData(prefix)
+    );
+
+    GEAR_FIELD_SUFFIXES.forEach(suffix => {
+        const field = el[prefix + suffix];
+        if (!field) return;
+
+        field.addEventListener("input", () => {
+            if (!itemConfirmationRequired(prefix)) return;
+            invalidateItemConfirmation(prefix);
+            updateGearSlotMismatchUI();
+        });
+    });
+});
 
 document.querySelectorAll("[data-feedback]").forEach(button => {
     button.addEventListener("click", () => {
