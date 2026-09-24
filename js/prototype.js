@@ -1703,13 +1703,25 @@ function scoreGear(item, goal) {
 
 function compareGear() {
     const mismatch = updateGearSlotMismatchUI();
+    const confirmation = confirmationBlockingState();
 
-    if (mismatch.blocking) {
+    if (mismatch.blocking || confirmation.blocking) {
         prototypeState.lastGearComparison = null;
-        document.getElementById("gearVerdict").textContent = "REVIEW SLOT";
-        document.getElementById("gearReason").textContent =
-            "Darkstorm stopped the comparison because the screenshot item type does not match the selected comparison slot.";
         document.getElementById("equipCandidateButton").disabled = true;
+
+        if (mismatch.blocking) {
+            document.getElementById("gearVerdict").textContent = "REVIEW SLOT";
+            document.getElementById("gearReason").textContent =
+                "Darkstorm stopped the comparison because the screenshot item type does not match the selected comparison slot.";
+        } else {
+            const pendingLabels = confirmation.pending
+                .map(prefix => prefix === "equipped" ? "Equipped Item" : "Candidate Item")
+                .join(" and ");
+            document.getElementById("gearVerdict").textContent = "CONFIRM DATA";
+            document.getElementById("gearReason").textContent =
+                `Darkstorm is waiting for gamer verification of ${pendingLabels} before comparing the items.`;
+        }
+
         return null;
     }
 
@@ -1764,10 +1776,15 @@ function resetGearVerdict() {
 
 function equipCandidate() {
     const mismatch = updateGearSlotMismatchUI();
-    if (mismatch.blocking) {
-        document.getElementById("gearVerdict").textContent = "REVIEW SLOT";
+    const confirmation = confirmationBlockingState();
+
+    if (mismatch.blocking || confirmation.blocking) {
+        document.getElementById("gearVerdict").textContent =
+            mismatch.blocking ? "REVIEW SLOT" : "CONFIRM DATA";
         document.getElementById("gearReason").textContent =
-            "Resolve the screenshot/comparison-slot mismatch before equipping the candidate.";
+            mismatch.blocking
+                ? "Resolve the screenshot/comparison-slot mismatch before equipping the candidate."
+                : "Confirm the screenshot-derived item data before equipping the candidate.";
         return;
     }
 
