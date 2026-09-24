@@ -569,10 +569,7 @@ function canonicalAffixLine(line) {
         .replace(/[Il|]/g, "1")
         .replace(/S/g, "5");
 
-    const range = rangeFromLine(line);
-    const rangeText = range ? ` [${range.low} - ${range.high}]` : "";
-
-    return `${rawValue} ${label}${rangeText}`;
+    return `${rawValue} ${label}`;
 }
 
 function powerLooksUsable(power) {
@@ -585,6 +582,11 @@ function powerLooksUsable(power) {
     if (/\b(?:weapon damage|toughness|strength\s+\d|intelligence\s+\d|willpower\s+\d|dexterity\s+\d|stats\s*&\s*materials)\b/i.test(power)) {
         return false;
     }
+
+    const suspiciousSymbols = (power.match(/[|{}<>]/g) ?? []).length;
+    if (suspiciousSymbols >= 2) return false;
+
+    if (/\b[A-Z]{3,}\b/.test(power)) return false;
 
     return true;
 }
