@@ -528,6 +528,15 @@ function numberBeforeLabel(line, labelPattern) {
 }
 
 function canonicalAffixLine(line) {
+    if (/\b(?:increased|deals|makes|enemies|seconds|ground|vulnerable|imprinted|aspect)\b/i.test(line)) {
+        return "";
+    }
+
+    const signedValue = line.match(/[+-]\s*[0-9OIlS,.]+(?:\.[0-9]+)?%?/);
+    if (!signedValue || signedValue.index === undefined || signedValue.index > 14) {
+        return "";
+    }
+
     const statMap = [
         [/maximum\s+life/i, "Maximum Life"],
         [/fortify\s+generation/i, "Fortify Generation"],
@@ -558,12 +567,9 @@ function canonicalAffixLine(line) {
     const [pattern, label] = matchedStat;
     const patternMatch = line.match(pattern);
     if (!patternMatch || patternMatch.index === undefined) return "";
+    if (signedValue.index > patternMatch.index) return "";
 
-    const before = line.slice(0, patternMatch.index);
-    const tokens = [...before.matchAll(/[+-]\s*[0-9OIlS,.]+(?:\.[0-9]+)?%?/g)];
-    if (!tokens.length) return "";
-
-    const rawValue = tokens[tokens.length - 1][0]
+    const rawValue = signedValue[0]
         .replace(/\s+/g, "")
         .replace(/[Oo]/g, "0")
         .replace(/[Il|]/g, "1")
@@ -826,6 +832,141 @@ function applyScreenshotExtraction(prefix, extraction, ocrConfidence) {
     return true;
 }
 
+function extractionQuality(extraction) {
+    const fields = extraction?.fields ?? {};
+    let score = 0;
+
+    if (fields.name) score += 2;
+    if (fields.itemType) score += 1;
+    if (fields.itemPower) score += 2;
+    if (fields.armor) score += 2;
+    if (fields.life) score += 2;
+    if (fields.damage) score += 2;
+    if (fields.affixes) score += 2;
+    if (fields.power) score += 1;
+    if (fields.sockets) score += 1;
+    if (fields.masterwork) score += 1;
+
+    return score;
+}
+
+function shouldRunEnhancedRead(extraction) {
+    const fields = extraction?.fields ?? {};
+    return (
+        extractionQuality(extraction) < 8 ||
+        !fields.itemPower ||
+        (!fields.armor && !fields.damage)
+    );
+}
+
+function mergeScreenshotExtractions(primary, enhanced) {
+    const merged = {
+        fields: { ...primary.fields },
+        detected: [...new Set(primary.detected ?? [])],
+        inferred: [...new Set(primary.inferred ?? [])],
+        rejected: [...new Set(primary.rejected ?? [])],
+        rawText: primary.rawText ?? ""
+    };
+
+    const fieldLabels = {
+        name: "Name",
+        itemType: "Item type",
+        itemPower: "Item power",
+        armor: "Armor",
+        life: "Maximum Life",
+        damage: "Damage",
+        power: "Aspect / unique power",
+        affixes: "Affixes",
+        masterwork: "Masterwork",
+        sockets: "Sockets"
+    };
+
+    Object.entries(enhanced.fields ?? {}).forEach(([key, value]) => {
+        const current = merged.fields[key];
+        const isMissing = current === "" || current === 0 || current == null;
+        const hasValue = value !== "" && value !== 0 && value != null;
+
+        if (isMissing && hasValue) {
+            merged.fields[key] = value;
+            const label = fieldLabels[key];
+            if (label) merged.detected.push(label);
+        } else if (key === "affixes" && value && current) {
+            const combined = [
+                ...String(current).split("\n"),
+                ...String(value).split("\n")
+            ].filter(Boolean);
+            merged.fields.affixes = [...new Set(combined)].join("\n");
+        }
+    });
+
+    merged.detected = [...new Set(merged.detected)];
+    merged.inferred = [...new Set([
+        ...merged.inferred,
+        ...(enhanced.inferred ?? [])
+    ])];
+    merged.rejected = [...new Set([
+        ...merged.rejected,
+        ...(enhanced.rejected ?? [])
+    ])];
+
+    merged.rawText = [
+        primary.rawText,
+        enhanced.rawText
+            ? "\n\n--- Enhanced item-card pass ---\n" + enhanced.rawText
+            : ""
+    ].join("");
+
+    return merged;
+}
+
+async function createEnhancedOcrSource(file) {
+    const bitmap = await createImageBitmap(file);
+
+    try {
+        const cropWidth = Math.max(1, Math.floor(bitmap.width * 0.86));
+        const cropHeight = Math.max(1, Math.floor(bitmap.height * 0.92));
+        const scale = Math.min(2, Math.max(1.35, 2200 / cropWidth));
+
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.floor(cropWidth * scale);
+        canvas.height = Math.floor(cropHeight * scale);
+
+        const context = canvas.getContext("2d", { willReadFrequently: true });
+        context.imageSmoothingEnabled = true;
+        context.imageSmoothingQuality = "high";
+        context.drawImage(
+            bitmap,
+            0, 0, cropWidth, cropHeight,
+            0, 0, canvas.width, canvas.height
+        );
+
+        const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+        const pixels = imageData.data;
+
+        for (let index = 0; index < pixels.length; index += 4) {
+            const luminance =
+                (pixels[index] * 0.299) +
+                (pixels[index + 1] * 0.587) +
+                (pixels[index + 2] * 0.114);
+
+            const inverted = 255 - luminance;
+            const contrasted = Math.max(
+                0,
+                Math.min(255, ((inverted - 128) * 1.55) + 128)
+            );
+
+            pixels[index] = contrasted;
+            pixels[index + 1] = contrasted;
+            pixels[index + 2] = contrasted;
+        }
+
+        context.putImageData(imageData, 0, 0);
+        return canvas;
+    } finally {
+        bitmap.close?.();
+    }
+}
+
 async function readItemScreenshot(prefix) {
     const screenshot = prototypeState.screenshots[prefix];
     const ui = screenshotElements(prefix);
@@ -865,14 +1006,54 @@ async function readItemScreenshot(prefix) {
         );
 
         const rawText = result?.data?.text ?? "";
-        const ocrConfidence = Number(result?.data?.confidence ?? 0);
-        const extraction = parseDiabloItemText(
+        let ocrConfidence = Number(result?.data?.confidence ?? 0);
+        let extraction = parseDiabloItemText(
             rawText,
             el.comparisonSlot.value
         );
+        let enhancedUsed = false;
+
+        if (shouldRunEnhancedRead(extraction)) {
+            ui.status.textContent = "Trying enhanced item-card read…";
+
+            try {
+                const enhancedSource = await createEnhancedOcrSource(
+                    screenshot.file
+                );
+                const enhancedResult = await window.Tesseract.recognize(
+                    enhancedSource,
+                    "eng"
+                );
+                const enhancedText = enhancedResult?.data?.text ?? "";
+                const enhancedConfidence = Number(
+                    enhancedResult?.data?.confidence ?? 0
+                );
+                const enhancedExtraction = parseDiabloItemText(
+                    enhancedText,
+                    el.comparisonSlot.value
+                );
+
+                extraction = mergeScreenshotExtractions(
+                    extraction,
+                    enhancedExtraction
+                );
+                ocrConfidence = Math.max(
+                    ocrConfidence,
+                    enhancedConfidence
+                );
+                enhancedUsed = true;
+            } catch (enhancedError) {
+                console.warn(
+                    "Darkstorm enhanced screenshot read failed:",
+                    enhancedError
+                );
+            }
+        }
 
         applyScreenshotExtraction(prefix, extraction, ocrConfidence);
-        ui.status.textContent = `OCR ${Math.round(ocrConfidence)}% · review`;
+        ui.status.textContent = enhancedUsed
+            ? `OCR ${Math.round(ocrConfidence)}% · enhanced review`
+            : `OCR ${Math.round(ocrConfidence)}% · review`;
     } catch (error) {
         console.error("Darkstorm screenshot read failed:", error);
         ui.readout.hidden = false;
