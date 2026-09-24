@@ -11,6 +11,10 @@ const prototypeState = {
     screenshots: {
         equipped: null,
         candidate: null
+    },
+    screenshotItemTypes: {
+        equipped: "",
+        candidate: ""
     }
 };
 
@@ -340,7 +344,9 @@ function clearItemScreenshot(prefix, { revoke = true } = {}) {
     }
 
     prototypeState.screenshots[prefix] = null;
+    prototypeState.screenshotItemTypes[prefix] = "";
     resetScreenshotControls(prefix);
+    updateGearSlotMismatchUI();
 }
 
 function clearAllItemScreenshots() {
@@ -370,6 +376,7 @@ function setItemScreenshot(prefix, file) {
 
 function promoteCandidateScreenshotToEquipped() {
     const candidateScreenshot = prototypeState.screenshots.candidate;
+    const candidateItemType = prototypeState.screenshotItemTypes.candidate;
 
     clearItemScreenshot("equipped");
 
@@ -378,9 +385,12 @@ function promoteCandidateScreenshotToEquipped() {
     }
 
     prototypeState.screenshots.equipped = candidateScreenshot;
+    prototypeState.screenshotItemTypes.equipped = candidateItemType;
     prototypeState.screenshots.candidate = null;
+    prototypeState.screenshotItemTypes.candidate = "";
     renderItemScreenshot("equipped");
     resetScreenshotControls("candidate");
+    updateGearSlotMismatchUI();
 }
 
 function integerFromOcr(value) {
@@ -429,6 +439,129 @@ function itemTypeFromSlot(slotKey) {
         offHand: "Off Hand"
     };
     return map[slotKey] ?? "Item";
+}
+
+function comparisonSlotsForItemType(itemType) {
+    const normalized = String(itemType ?? "").trim().toLowerCase();
+
+    if (!normalized) return [];
+    if (normalized === "helm") return ["helm"];
+    if (normalized === "chest armor" || normalized === "chest") return ["chest"];
+    if (normalized === "gloves") return ["gloves"];
+    if (normalized === "pants") return ["pants"];
+    if (normalized === "boots") return ["boots"];
+    if (normalized === "amulet") return ["amulet"];
+    if (normalized === "ring") return ["ring1", "ring2"];
+
+    if (/\b(?:focus|shield|totem)\b/i.test(normalized)) {
+        return ["offHand"];
+    }
+
+    if (/\b(?:sword|axe|mace|dagger|wand|scythe|staff|polearm)\b/i.test(normalized)) {
+        return ["mainHand"];
+    }
+
+    return [];
+}
+
+function preferredComparisonSlot(itemType, currentSlot = el.comparisonSlot?.value) {
+    const slots = comparisonSlotsForItemType(itemType);
+    if (!slots.length) return null;
+    if (currentSlot && slots.includes(currentSlot)) return currentSlot;
+    return slots[0];
+}
+
+function gearSlotMismatchState() {
+    const selectedSlot = el.comparisonSlot?.value;
+    const selectedLabel = comparisonSlotLabel(selectedSlot);
+    const observations = SCREENSHOT_PREFIXES
+        .map(prefix => ({
+            prefix,
+            label: prefix === "equipped" ? "Equipped" : "Candidate",
+            itemType: prototypeState.screenshotItemTypes[prefix]
+        }))
+        .filter(observation => observation.itemType);
+
+    const mismatches = observations.filter(observation => {
+        const allowedSlots = comparisonSlotsForItemType(observation.itemType);
+        return allowedSlots.length > 0 && !allowedSlots.includes(selectedSlot);
+    });
+
+    const preferredSlots = observations
+        .map(observation => preferredComparisonSlot(observation.itemType, selectedSlot))
+        .filter(Boolean);
+
+    const uniquePreferred = [...new Set(preferredSlots)];
+    const suggestedSlot = uniquePreferred.length === 1
+        ? uniquePreferred[0]
+        : null;
+
+    return {
+        blocking: mismatches.length > 0,
+        selectedSlot,
+        selectedLabel,
+        observations,
+        mismatches,
+        suggestedSlot
+    };
+}
+
+function updateGearSlotMismatchUI() {
+    const state = gearSlotMismatchState();
+    const warning = document.getElementById("gearSlotMismatchWarning");
+    const warningText = document.getElementById("gearSlotMismatchText");
+    const useDetectedButton = document.getElementById("useDetectedSlotButton");
+    const compareButton = document.getElementById("compareGearButton");
+    const equipButton = document.getElementById("equipCandidateButton");
+
+    if (!warning || !warningText || !useDetectedButton || !compareButton) {
+        return state;
+    }
+
+    if (!state.blocking) {
+        warning.hidden = true;
+        warningText.textContent = "";
+        useDetectedButton.hidden = true;
+        useDetectedButton.dataset.slot = "";
+        compareButton.disabled = false;
+        return state;
+    }
+
+    const mismatchText = state.mismatches
+        .map(observation =>
+            `${observation.label} screenshot looks like ${observation.itemType}`
+        )
+        .join("; ");
+
+    const differentTypes = state.observations.length >= 2 &&
+        new Set(
+            state.observations.map(observation =>
+                comparisonSlotsForItemType(observation.itemType).join("|")
+            )
+        ).size > 1;
+
+    warning.hidden = false;
+    warningText.textContent =
+        `Selected comparison slot is ${state.selectedLabel}, but ${mismatchText}. ` +
+        (differentTypes
+            ? "The screenshots may also be different equipment types. "
+            : "") +
+        "Darkstorm will not compare them until the slot mismatch is resolved.";
+
+    compareButton.disabled = true;
+    if (equipButton) equipButton.disabled = true;
+
+    if (state.suggestedSlot && !differentTypes) {
+        useDetectedButton.hidden = false;
+        useDetectedButton.dataset.slot = state.suggestedSlot;
+        useDetectedButton.textContent =
+            `Use ${comparisonSlotLabel(state.suggestedSlot)}`;
+    } else {
+        useDetectedButton.hidden = true;
+        useDetectedButton.dataset.slot = "";
+    }
+
+    return state;
 }
 
 const OCR_ITEM_TYPES = [
@@ -803,6 +936,12 @@ function parseDiabloItemText(rawText, slotKey) {
 function applyScreenshotExtraction(prefix, extraction, ocrConfidence) {
     const ui = screenshotElements(prefix);
     const detectedCount = extraction.detected.length;
+
+    prototypeState.screenshotItemTypes[prefix] =
+        extraction.detected.includes("Item type")
+            ? extraction.fields.itemType
+            : "";
+    updateGearSlotMismatchUI();
 
     ui.readout.hidden = false;
     ui.ocrText.textContent = extraction.rawText || "No text detected.";
@@ -1447,6 +1586,17 @@ function scoreGear(item, goal) {
 }
 
 function compareGear() {
+    const mismatch = updateGearSlotMismatchUI();
+
+    if (mismatch.blocking) {
+        prototypeState.lastGearComparison = null;
+        document.getElementById("gearVerdict").textContent = "REVIEW SLOT";
+        document.getElementById("gearReason").textContent =
+            "Darkstorm stopped the comparison because the screenshot item type does not match the selected comparison slot.";
+        document.getElementById("equipCandidateButton").disabled = true;
+        return null;
+    }
+
     const character = getCharacterFromForm();
     const equipped = character.gear.equipped;
     const candidate = character.gear.candidate;
@@ -1497,6 +1647,14 @@ function resetGearVerdict() {
 }
 
 function equipCandidate() {
+    const mismatch = updateGearSlotMismatchUI();
+    if (mismatch.blocking) {
+        document.getElementById("gearVerdict").textContent = "REVIEW SLOT";
+        document.getElementById("gearReason").textContent =
+            "Resolve the screenshot/comparison-slot mismatch before equipping the candidate.";
+        return;
+    }
+
     const candidate = getGear("candidate");
     const slotKey = el.comparisonSlot.value;
     setGear("equipped", candidate);
@@ -1815,13 +1973,36 @@ document.getElementById("importInput").addEventListener("change", event => {
 document.getElementById("analyzeButton").addEventListener("click", analyzeBuild);
 document.getElementById("loadSlotFromLoadoutButton").addEventListener("click", loadSelectedSlotFromLoadout);
 el.comparisonSlot.addEventListener("change", () => {
-    clearAllItemScreenshots();
+    prototypeState.lastGearComparison = null;
+    prototypeState.candidateEquipped = false;
+    resetGearVerdict();
+
+    if (hasTemporaryScreenshots()) {
+        updateGearSlotMismatchUI();
+        markUnsaved();
+        return;
+    }
+
     loadSelectedSlotFromLoadout();
     setGear("candidate", {});
+    updateGearSlotMismatchUI();
 });
+
+document.getElementById("useDetectedSlotButton").addEventListener("click", event => {
+    const suggestedSlot = event.currentTarget.dataset.slot;
+    if (!suggestedSlot) return;
+
+    el.comparisonSlot.value = suggestedSlot;
+    prototypeState.lastGearComparison = null;
+    prototypeState.candidateEquipped = false;
+    resetGearVerdict();
+    updateGearSlotMismatchUI();
+    markUnsaved();
+});
+
 document.getElementById("compareGearButton").addEventListener("click", () => {
-    compareGear();
-    analyzeBuild();
+    const comparison = compareGear();
+    if (comparison) analyzeBuild();
 });
 document.getElementById("equipCandidateButton").addEventListener("click", equipCandidate);
 
