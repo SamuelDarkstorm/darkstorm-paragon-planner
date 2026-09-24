@@ -384,7 +384,24 @@ function promoteCandidateScreenshotToEquipped() {
 }
 
 function integerFromOcr(value) {
-    const parsed = Number(String(value ?? "").replace(/[^0-9]/g, ""));
+    const normalized = String(value ?? "")
+        .replace(/[Oo]/g, "0")
+        .replace(/[Il|]/g, "1")
+        .replace(/S/g, "5")
+        .replace(/[^0-9]/g, "");
+
+    const parsed = Number(normalized);
+    return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function decimalFromOcr(value) {
+    const normalized = String(value ?? "")
+        .replace(/[Oo]/g, "0")
+        .replace(/[Il|]/g, "1")
+        .replace(/S/g, "5")
+        .replace(/[^0-9.]/g, "");
+
+    const parsed = Number(normalized);
     return Number.isFinite(parsed) ? parsed : 0;
 }
 
@@ -414,34 +431,162 @@ function itemTypeFromSlot(slotKey) {
     return map[slotKey] ?? "Item";
 }
 
+const OCR_ITEM_TYPES = [
+    ["chest armor", "Chest Armor"],
+    ["helm", "Helm"],
+    ["gloves", "Gloves"],
+    ["pants", "Pants"],
+    ["boots", "Boots"],
+    ["amulet", "Amulet"],
+    ["ring", "Ring"],
+    ["two-handed sword", "Two-Handed Sword"],
+    ["two handed sword", "Two-Handed Sword"],
+    ["two-handed axe", "Two-Handed Axe"],
+    ["two handed axe", "Two-Handed Axe"],
+    ["two-handed mace", "Two-Handed Mace"],
+    ["two handed mace", "Two-Handed Mace"],
+    ["two-handed scythe", "Two-Handed Scythe"],
+    ["two handed scythe", "Two-Handed Scythe"],
+    ["sword", "Sword"],
+    ["axe", "Axe"],
+    ["mace", "Mace"],
+    ["dagger", "Dagger"],
+    ["wand", "Wand"],
+    ["scythe", "Scythe"],
+    ["focus", "Focus"],
+    ["shield", "Shield"],
+    ["staff", "Staff"],
+    ["polearm", "Polearm"],
+    ["totem", "Totem"]
+];
+
+function exactItemTypeFromText(text) {
+    const normalized = String(text ?? "").toLowerCase();
+    const match = OCR_ITEM_TYPES.find(([needle]) => normalized.includes(needle));
+    return match?.[1] ?? "";
+}
+
 function parseItemName(lines, rarityIndex) {
     if (rarityIndex <= 0) return "";
 
-    const blacklist = /^(equipped|character|stats|materials|no title|weapon damage|toughness|strength|intelligence|willpower|dexterity|equipment|dungeon keys)$/i;
+    const blacklist = /(?:equipped|character|stats|materials|no title|weapon damage|toughness|strength|intelligence|willpower|dexterity|equipment|dungeon keys|slot transmog|hide transmog|mark as favorite)/i;
     const candidates = [];
+    const windowStart = Math.max(0, rarityIndex - 8);
 
-    for (let index = rarityIndex - 1; index >= 0 && candidates.length < 4; index -= 1) {
+    for (let index = windowStart; index < rarityIndex; index += 1) {
         const line = lines[index];
+        if (blacklist.test(line)) continue;
+        if (/\d|%|\[|\]|:/.test(line)) continue;
 
-        if (blacklist.test(line)) {
-            if (candidates.length) break;
-            continue;
-        }
+        const letters = (line.match(/[A-Za-z]/g) ?? []).length;
+        const usefulCharacters = line.replace(/\s/g, "").length;
+        if (!usefulCharacters || letters / usefulCharacters < 0.72) continue;
+        if (!/^[A-Za-z][A-Za-z'’& -]{1,42}$/.test(line)) continue;
 
-        if (/\d|%|\[|\]|:/.test(line)) {
-            if (candidates.length) break;
-            continue;
-        }
-
-        if (!/^[A-Za-z][A-Za-z'’& -]{1,40}$/.test(line)) {
-            if (candidates.length) break;
-            continue;
-        }
-
-        candidates.unshift(line);
+        candidates.push(line);
     }
 
-    return candidates.join(" ").trim();
+    return candidates.slice(-4).join(" ").trim();
+}
+
+function findLineWith(lines, pattern, startIndex = 0, maxDistance = Infinity) {
+    const endIndex = Math.min(lines.length, startIndex + maxDistance + 1);
+
+    for (let index = Math.max(0, startIndex); index < endIndex; index += 1) {
+        if (pattern.test(lines[index])) {
+            return { line: lines[index], index };
+        }
+    }
+
+    return null;
+}
+
+function rangeFromLine(line) {
+    const match = String(line ?? "").match(
+        /[\[(]\s*([0-9OIlS,.]{1,8})\s*[-–]\s*([0-9OIlS,.]{1,8})\s*[\])]/i
+    );
+
+    if (!match) return null;
+
+    const low = integerFromOcr(match[1]);
+    const high = integerFromOcr(match[2]);
+
+    if (!low || !high) return null;
+    return { low: Math.min(low, high), high: Math.max(low, high) };
+}
+
+function numberBeforeLabel(line, labelPattern) {
+    const source = String(line ?? "");
+    const labelMatch = source.match(labelPattern);
+    if (!labelMatch || labelMatch.index === undefined) return 0;
+
+    const before = source.slice(0, labelMatch.index);
+    const tokens = [...before.matchAll(/[+-]?\s*[0-9OIlS,.]+(?:\.[0-9]+)?%?/g)];
+    if (!tokens.length) return 0;
+
+    return integerFromOcr(tokens[tokens.length - 1][0]);
+}
+
+function canonicalAffixLine(line) {
+    const statMap = [
+        [/maximum\s+life/i, "Maximum Life"],
+        [/fortify\s+generation/i, "Fortify Generation"],
+        [/healing\s+received/i, "Healing Received"],
+        [/cooldown\s+reduction/i, "Cooldown Reduction"],
+        [/attack\s+speed/i, "Attack Speed"],
+        [/movement\s+speed/i, "Movement Speed"],
+        [/critical\s+strike/i, "Critical Strike"],
+        [/damage\s+reduction/i, "Damage Reduction"],
+        [/lucky\s+hit/i, "Lucky Hit"],
+        [/all\s+resistance/i, "All Resistance"],
+        [/resistance/i, "Resistance"],
+        [/intelligence/i, "Intelligence"],
+        [/strength/i, "Strength"],
+        [/dexterity/i, "Dexterity"],
+        [/willpower/i, "Willpower"],
+        [/thorns/i, "Thorns"],
+        [/armor/i, "Armor"],
+        [/essence/i, "Essence"],
+        [/minion/i, "Minion"],
+        [/golem/i, "Golem"],
+        [/skeleton/i, "Skeleton"]
+    ];
+
+    const matchedStat = statMap.find(([pattern]) => pattern.test(line));
+    if (!matchedStat) return "";
+
+    const [pattern, label] = matchedStat;
+    const patternMatch = line.match(pattern);
+    if (!patternMatch || patternMatch.index === undefined) return "";
+
+    const before = line.slice(0, patternMatch.index);
+    const tokens = [...before.matchAll(/[+-]\s*[0-9OIlS,.]+(?:\.[0-9]+)?%?/g)];
+    if (!tokens.length) return "";
+
+    const rawValue = tokens[tokens.length - 1][0]
+        .replace(/\s+/g, "")
+        .replace(/[Oo]/g, "0")
+        .replace(/[Il|]/g, "1")
+        .replace(/S/g, "5");
+
+    const range = rangeFromLine(line);
+    const rangeText = range ? ` [${range.low} - ${range.high}]` : "";
+
+    return `${rawValue} ${label}${rangeText}`;
+}
+
+function powerLooksUsable(power) {
+    if (!power || power.length < 12) return false;
+
+    const letters = (power.match(/[A-Za-z]/g) ?? []).length;
+    const visible = power.replace(/\s/g, "").length;
+    if (!visible || letters / visible < 0.58) return false;
+
+    if (/\b(?:weapon damage|toughness|strength\s+\d|intelligence\s+\d|willpower\s+\d|dexterity\s+\d|stats\s*&\s*materials)\b/i.test(power)) {
+        return false;
+    }
+
+    return true;
 }
 
 function parseDiabloItemText(rawText, slotKey) {
@@ -450,6 +595,7 @@ function parseDiabloItemText(rawText, slotKey) {
     const fields = { ...emptyLoadoutItem() };
     const detected = [];
     const inferred = [];
+    const rejected = [];
 
     const rarityIndex = lines.findIndex(line =>
         /\b(?:legendary|unique|rare|magic)\b/i.test(line) &&
@@ -457,20 +603,10 @@ function parseDiabloItemText(rawText, slotKey) {
     );
 
     if (rarityIndex >= 0) {
-        const rarityLine = lines[rarityIndex];
-        const typeMatch = rarityLine.match(
-            /\b(?:legendary|unique|rare|magic)\s+(.+?)(?:\s*$)/i
-        );
-
-        if (typeMatch?.[1]) {
-            const possibleType = typeMatch[1]
-                .replace(/[^A-Za-z -]/g, "")
-                .trim();
-
-            if (possibleType && possibleType.length <= 28) {
-                fields.itemType = possibleType;
-                detected.push("Item type");
-            }
+        const exactType = exactItemTypeFromText(lines[rarityIndex]);
+        if (exactType) {
+            fields.itemType = exactType;
+            detected.push("Item type");
         }
 
         const itemName = parseItemName(lines, rarityIndex);
@@ -485,84 +621,92 @@ function parseDiabloItemText(rawText, slotKey) {
         inferred.push("Item type from comparison slot");
     }
 
-    const itemPowerMatch = joined.match(/\b([0-9OIlS,]{2,5})\s*Item\s*Power\b/i);
-    if (itemPowerMatch) {
-        const value = integerFromOcr(
-            itemPowerMatch[1]
-                .replace(/[Oo]/g, "0")
-                .replace(/[Il]/g, "1")
-                .replace(/S/g, "5")
-        );
+    const itemPowerLine = findLineWith(lines, /Item\s*Power/i);
+    if (itemPowerLine) {
+        const value = numberBeforeLabel(itemPowerLine.line, /Item\s*Power/i);
         if (value >= 100 && value <= 2000) {
             fields.itemPower = value;
             detected.push("Item power");
+        } else {
+            rejected.push("Item power");
         }
     }
 
-    const armorMatch = joined.match(/\b([0-9OIlS,]{2,6})\s*Armor\b/i);
-    if (armorMatch) {
-        const value = integerFromOcr(
-            armorMatch[1]
-                .replace(/[Oo]/g, "0")
-                .replace(/[Il]/g, "1")
-                .replace(/S/g, "5")
-        );
+    const baseSearchStart = itemPowerLine
+        ? itemPowerLine.index + 1
+        : Math.max(0, rarityIndex + 1);
+
+    const baseArmorLine = findLineWith(
+        lines,
+        /\bArmor\b/i,
+        baseSearchStart,
+        5
+    );
+
+    if (baseArmorLine) {
+        const value = numberBeforeLabel(baseArmorLine.line, /\bArmor\b/i);
         if (value > 0 && value < 100000) {
             fields.armor = value;
             detected.push("Armor");
+        } else {
+            rejected.push("Armor");
         }
     }
 
-    const lifeMatch = joined.match(/[+]?\s*([0-9OIlS,]{2,7})\s*Maximum\s+Life\b/i);
-    if (lifeMatch) {
-        const value = integerFromOcr(
-            lifeMatch[1]
-                .replace(/[Oo]/g, "0")
-                .replace(/[Il]/g, "1")
-                .replace(/S/g, "5")
-        );
-        if (value > 0 && value < 1000000) {
+    const lifeLine = findLineWith(lines, /Maximum\s+Life/i, baseSearchStart, 12);
+    if (lifeLine) {
+        const value = numberBeforeLabel(lifeLine.line, /Maximum\s+Life/i);
+        const range = rangeFromLine(lifeLine.line);
+        const withinVisibleRange = !range ||
+            (value >= range.low * 0.7 && value <= range.high * 1.3);
+
+        if (value > 0 && value < 100000 && withinVisibleRange) {
             fields.life = value;
             detected.push("Maximum Life");
+        } else {
+            rejected.push("Maximum Life");
         }
     }
 
     if (slotKey === "mainHand" || slotKey === "offHand") {
-        const damageMatch = joined.match(/\b([0-9OIlS,]{2,7})\s+(?:Weapon\s+)?Damage\b/i);
-        if (damageMatch) {
-            const value = integerFromOcr(
-                damageMatch[1]
-                    .replace(/[Oo]/g, "0")
-                    .replace(/[Il]/g, "1")
-                    .replace(/S/g, "5")
+        const damageLine = findLineWith(
+            lines,
+            /(?:Weapon\s+)?Damage/i,
+            baseSearchStart,
+            5
+        );
+
+        if (damageLine) {
+            const value = numberBeforeLabel(
+                damageLine.line,
+                /(?:Weapon\s+)?Damage/i
             );
+
             if (value > 0 && value < 1000000) {
                 fields.damage = value;
                 detected.push("Damage");
+            } else {
+                rejected.push("Damage");
             }
         }
     }
 
-    const itemPowerIndex = lines.findIndex(line => /Item\s*Power/i.test(line));
-    const baseSearchStart = itemPowerIndex >= 0
-        ? itemPowerIndex + 1
-        : Math.max(0, rarityIndex + 1);
-    const baseStatIndex = lines.findIndex((line, index) =>
-        index >= baseSearchStart &&
-        index <= baseSearchStart + 4 &&
-        /\b(?:Armor|(?:Weapon\s+)?Damage)\b/i.test(line)
+    const baseStatIndex = Math.max(
+        rarityIndex,
+        itemPowerLine?.index ?? -1,
+        baseArmorLine?.index ?? -1
     );
-    const affixStart = Math.max(rarityIndex, itemPowerIndex, baseStatIndex) + 1;
+    const affixStart = baseStatIndex + 1;
     const stopPattern = /\b(?:imprinted|aspect|empty socket|requires level|sell value|durability|mark as junk|compare|drop)\b/i;
-    const affixPattern = /\b(?:intelligence|strength|dexterity|willpower|maximum life|armor|fortify|healing|thorns|critical|attack speed|movement speed|cooldown|resource|resistance|damage reduction|damage|life|ranks?|lucky hit|essence|vulnerable|minion|golem|skeleton)\b/i;
     const affixLines = [];
 
     for (let index = Math.max(0, affixStart); index < lines.length; index += 1) {
         const line = lines[index];
         if (stopPattern.test(line)) break;
 
-        if (affixPattern.test(line) && /\d|%|\+/.test(line)) {
-            affixLines.push(line);
+        const canonical = canonicalAffixLine(line);
+        if (canonical) {
+            affixLines.push(canonical);
         }
 
         if (affixLines.length >= 8) break;
@@ -595,9 +739,11 @@ function parseDiabloItemText(rawText, slotKey) {
             .replace(/^.*?\b(?:imprinted|aspect)\s*:\s*/i, "")
             .trim();
 
-        if (power.length >= 12) {
+        if (powerLooksUsable(power)) {
             fields.power = power;
             detected.push("Aspect / unique power");
+        } else if (power) {
+            rejected.push("Aspect / unique power");
         }
     }
 
@@ -620,6 +766,7 @@ function parseDiabloItemText(rawText, slotKey) {
         fields,
         detected: [...new Set(detected)],
         inferred,
+        rejected: [...new Set(rejected)],
         rawText: String(rawText ?? "").trim()
     };
 }
@@ -646,9 +793,12 @@ function applyScreenshotExtraction(prefix, extraction, ocrConfidence) {
     const inferredText = extraction.inferred.length
         ? ` ${extraction.inferred.join(", ")} was inferred rather than read.`
         : "";
+    const rejectedText = extraction.rejected?.length
+        ? ` Skipped as uncertain: ${extraction.rejected.join(", ")}.`
+        : "";
 
     ui.readoutText.textContent =
-        `Detected: ${extraction.detected.join(", ")}. OCR text confidence: ${Math.round(ocrConfidence)}%. Fields Darkstorm could not confidently map were left blank or zero.${inferredText} Review the fields before Compare Gear.`;
+        `Detected: ${extraction.detected.join(", ")}. OCR text confidence: ${Math.round(ocrConfidence)}%. Fields Darkstorm could not confidently map were left blank or zero.${rejectedText}${inferredText} Review the fields before Compare Gear.`;
 
     return true;
 }
