@@ -162,6 +162,9 @@ function getLoadoutItem(slotKey) {
             : input.value.trim();
     });
 
+    item.baseArmor = item.armor;
+    item.affixDetails = affixDetailsFromLegacyText(item.affixes);
+
     return item;
 }
 
@@ -177,7 +180,10 @@ function setLoadoutItem(slotKey, item = {}) {
     LOADOUT_FIELDS.forEach(field => {
         const input = document.getElementById(loadoutFieldId(slotKey, field.key));
         if (!input) return;
-        input.value = normalized[field.key] ?? (field.type === "number" ? 0 : "");
+        const value = field.key === "armor" && Number(normalized.baseArmor) > 0
+            ? normalized.baseArmor
+            : normalized[field.key];
+        input.value = value ?? (field.type === "number" ? 0 : "");
     });
 
     updateLoadoutSummary(slotKey);
@@ -1166,6 +1172,7 @@ function parseDiabloItemText(rawText, slotKey) {
         const value = numberBeforeLabel(baseArmorLine.line, /\bArmor\b/i);
         if (value > 0 && value < 100000) {
             fields.armor = value;
+            fields.baseArmor = value;
             detected.push("Armor");
         } else {
             rejected.push("Armor");
@@ -1821,7 +1828,9 @@ function setGear(prefix, gear) {
     el[prefix + "Rarity"].value = gear?.rarity ?? "";
     el[prefix + "ItemType"].value = gear?.itemType ?? "";
     el[prefix + "ItemPower"].value = gear?.itemPower ?? 0;
-    el[prefix + "Armor"].value = gear?.baseArmor ?? gear?.armor ?? 0;
+    el[prefix + "Armor"].value = Number(gear?.baseArmor) > 0
+        ? gear.baseArmor
+        : (gear?.armor ?? 0);
     el[prefix + "Damage"].value = gear?.damage ?? 0;
     el[prefix + "RequiredLevel"].value = gear?.requiredLevel ?? 0;
     el[prefix + "Power"].value = gear?.power ?? "";
