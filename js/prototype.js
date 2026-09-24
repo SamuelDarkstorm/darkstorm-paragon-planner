@@ -1428,18 +1428,26 @@ function mergeScreenshotExtractions(primary, enhanced) {
 
     const fieldLabels = {
         name: "Name",
+        rarity: "Rarity",
         itemType: "Item type",
         itemPower: "Item power",
         armor: "Armor",
-        life: "Maximum Life",
         damage: "Damage",
+        requiredLevel: "Required level",
         power: "Aspect / unique power",
+        powerValue: "Power roll",
+        powerMin: "Power roll low",
+        powerMax: "Power roll high",
         affixes: "Affixes",
+        tempers: "Temper status",
         masterwork: "Masterwork",
-        sockets: "Sockets"
+        sockets: "Sockets",
+        socketContents: "Socket contents"
     };
 
     Object.entries(enhanced.fields ?? {}).forEach(([key, value]) => {
+        if (key === "affixDetails") return;
+
         const current = merged.fields[key];
         const isMissing = current === "" || current === 0 || current == null;
         const hasValue = value !== "" && value !== 0 && value != null;
@@ -1490,6 +1498,39 @@ function mergeScreenshotExtractions(primary, enhanced) {
             merged.fields.affixes = [...new Set(combined)].join("\n");
         }
     });
+
+    const primaryAffixes = Array.isArray(primary.fields?.affixDetails)
+        ? primary.fields.affixDetails
+        : affixDetailsFromLegacyText(primary.fields?.affixes);
+    const enhancedAffixes = Array.isArray(enhanced.fields?.affixDetails)
+        ? enhanced.fields.affixDetails
+        : affixDetailsFromLegacyText(enhanced.fields?.affixes);
+
+    const combinedAffixes = [...primaryAffixes];
+    enhancedAffixes.forEach(detail => {
+        const matchIndex = combinedAffixes.findIndex(existing =>
+            String(existing.stat ?? "").toLowerCase() ===
+            String(detail.stat ?? "").toLowerCase()
+        );
+
+        if (matchIndex < 0 && combinedAffixes.length < MAX_AFFIX_ROWS) {
+            combinedAffixes.push(detail);
+        } else if (matchIndex >= 0) {
+            const existing = combinedAffixes[matchIndex];
+            combinedAffixes[matchIndex] = {
+                stat: existing.stat || detail.stat,
+                value: existing.value || detail.value,
+                min: existing.min || detail.min,
+                max: existing.max || detail.max
+            };
+        }
+    });
+
+    merged.fields.affixDetails = combinedAffixes.slice(0, MAX_AFFIX_ROWS);
+    if (merged.fields.affixDetails.length) {
+        merged.fields.affixes = formatAffixDetails(merged.fields.affixDetails);
+        merged.detected.push("Affixes");
+    }
 
     merged.detected = [...new Set(merged.detected)];
     merged.inferred = [...new Set([
@@ -1712,25 +1753,42 @@ function hasTemporaryScreenshots() {
 }
 
 function getGear(prefix) {
+    const affixDetails = getAffixDetails(prefix);
+    const baseArmor = numberValue(el[prefix + "Armor"]);
+    const bonusArmor = affixValueFor(affixDetails, /^Armor$/i);
+    const life = affixValueFor(affixDetails, /^Maximum Life$/i);
+    const defense = affixValueFor(
+        affixDetails,
+        /^(?:Damage Reduction|All Resistance|Resistance)$/i
+    );
+
     return {
-        name: el[prefix + "Name"].value.trim() || "Unnamed item",
+        name: el[prefix + "Name"].value.trim(),
+        rarity: el[prefix + "Rarity"].value.trim(),
         itemType: el[prefix + "ItemType"].value.trim(),
         itemPower: numberValue(el[prefix + "ItemPower"]),
-        armor: numberValue(el[prefix + "Armor"]),
-        life: numberValue(el[prefix + "Life"]),
-        defense: numberValue(el[prefix + "Defense"]),
+        baseArmor,
+        armor: baseArmor + bonusArmor,
+        life,
+        defense,
         damage: numberValue(el[prefix + "Damage"]),
+        requiredLevel: numberValue(el[prefix + "RequiredLevel"]),
         power: el[prefix + "Power"].value.trim(),
-        affixes: el[prefix + "Affixes"].value.trim(),
+        powerValue: el[prefix + "PowerValue"].value.trim(),
+        powerMin: el[prefix + "PowerMin"].value.trim(),
+        powerMax: el[prefix + "PowerMax"].value.trim(),
+        affixes: formatAffixDetails(affixDetails),
+        affixDetails,
         tempers: el[prefix + "Tempers"].value.trim(),
         masterwork: numberValue(el[prefix + "Masterwork"]),
-        sockets: numberValue(el[prefix + "Sockets"])
+        sockets: numberValue(el[prefix + "Sockets"]),
+        socketContents: el[prefix + "SocketContents"].value.trim()
     };
 }
 
 function getCharacterFromForm() {
     return {
-        schemaVersion: "0.2d",
+        schemaVersion: "0.2d2",
         profile: {
             name: el.characterName.value.trim(),
             className: el.className.value,
@@ -1759,18 +1817,27 @@ function getCharacterFromForm() {
 }
 
 function setGear(prefix, gear) {
-    el[prefix + "Name"].value = gear?.name ?? "";
+    el[prefix + "Name"].value = gear?.name === "Unnamed item" ? "" : (gear?.name ?? "");
+    el[prefix + "Rarity"].value = gear?.rarity ?? "";
     el[prefix + "ItemType"].value = gear?.itemType ?? "";
     el[prefix + "ItemPower"].value = gear?.itemPower ?? 0;
-    el[prefix + "Armor"].value = gear?.armor ?? 0;
-    el[prefix + "Life"].value = gear?.life ?? 0;
-    el[prefix + "Defense"].value = gear?.defense ?? 0;
+    el[prefix + "Armor"].value = gear?.baseArmor ?? gear?.armor ?? 0;
     el[prefix + "Damage"].value = gear?.damage ?? 0;
+    el[prefix + "RequiredLevel"].value = gear?.requiredLevel ?? 0;
     el[prefix + "Power"].value = gear?.power ?? "";
-    el[prefix + "Affixes"].value = gear?.affixes ?? "";
+    el[prefix + "PowerValue"].value = gear?.powerValue ?? "";
+    el[prefix + "PowerMin"].value = gear?.powerMin ?? "";
+    el[prefix + "PowerMax"].value = gear?.powerMax ?? "";
     el[prefix + "Tempers"].value = gear?.tempers ?? "";
     el[prefix + "Masterwork"].value = gear?.masterwork ?? 0;
     el[prefix + "Sockets"].value = gear?.sockets ?? 0;
+    el[prefix + "SocketContents"].value = gear?.socketContents ?? "";
+
+    const structuredAffixes = Array.isArray(gear?.affixDetails) && gear.affixDetails.length
+        ? gear.affixDetails
+        : affixDetailsFromLegacyText(gear?.affixes ?? "");
+
+    setAffixDetails(prefix, structuredAffixes);
 }
 
 function populateForm(character) {
@@ -2102,7 +2169,7 @@ function compareGear() {
     const absoluteDelta = Math.abs(Math.round(delta));
 
     reasonEl.textContent =
-        `${candidate.name} scores ${absoluteDelta} prototype points ${direction} than ${equipped.name} in the ${slotLabel} slot for the current "${character.profile.goal}" goal. This is a test heuristic, not a live Diablo IV damage calculator.`;
+        `${itemDisplayName(candidate, "Candidate item")} scores ${absoluteDelta} prototype points ${direction} than ${itemDisplayName(equipped, "equipped item")} in the ${slotLabel} slot for the current "${character.profile.goal}" goal. This is a test heuristic, not a live Diablo IV damage calculator.`;
 
     equipButton.disabled = verdict === "KEEP";
 
@@ -2140,7 +2207,7 @@ function equipCandidate() {
     prototypeState.candidateEquipped = true;
     document.getElementById("gearVerdict").textContent = "EQUIPPED";
     document.getElementById("gearReason").textContent =
-        `${candidate.name} is now treated as equipped for the next Darkstorm analysis.`;
+        `${itemDisplayName(candidate, "Candidate item")} is now treated as equipped for the next Darkstorm analysis.`;
     markUnsaved();
     analyzeBuild();
 }
@@ -2431,6 +2498,7 @@ function resetPrototype() {
 }
 
 renderEquipmentLoadout();
+renderGearAffixRows();
 wireScreenshotIntake();
 updateAllItemConfirmationUI();
 
