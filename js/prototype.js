@@ -1,8 +1,8 @@
-// Darkstorm Prototype 0.2
+// Darkstorm Prototype 0.3
 // Complete-player-loop controller.
 // This is intentionally simple and readable so the prototype can be rebuilt deliberately later.
 
-const STORAGE_KEY = "darkstorm-prototype-v0.2";
+const STORAGE_KEY = "darkstorm-prototype-v0.3";
 
 const prototypeState = {
     feedbackResult: null,
@@ -1788,7 +1788,7 @@ function getGear(prefix) {
 
 function getCharacterFromForm() {
     return {
-        schemaVersion: "0.2d2",
+        schemaVersion: "0.3",
         profile: {
             name: el.characterName.value.trim(),
             className: el.className.value,
