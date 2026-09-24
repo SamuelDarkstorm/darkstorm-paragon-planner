@@ -37,33 +37,47 @@ const EQUIPMENT_SLOTS = [
 
 const LOADOUT_FIELDS = [
     { key: "name", label: "Item Name", type: "text", wide: true },
+    { key: "rarity", label: "Rarity / Quality", type: "text" },
     { key: "itemType", label: "Item Type", type: "text" },
     { key: "itemPower", label: "Item Power", type: "number", min: 0 },
     { key: "armor", label: "Armor", type: "number", min: 0 },
     { key: "life", label: "Maximum Life", type: "number", min: 0 },
     { key: "defense", label: "Resistance / DR", type: "number", min: 0 },
     { key: "damage", label: "Damage Value", type: "number", min: 0 },
+    { key: "requiredLevel", label: "Required Level", type: "number", min: 0, max: 100 },
     { key: "power", label: "Aspect / Unique Power", type: "text", wide: true },
-    { key: "affixes", label: "Affixes", type: "textarea", wide: true },
-    { key: "tempers", label: "Tempers", type: "textarea", wide: true },
+    { key: "powerValue", label: "Power Roll", type: "text" },
+    { key: "powerMin", label: "Power Roll Low", type: "text" },
+    { key: "powerMax", label: "Power Roll High", type: "text" },
+    { key: "affixes", label: "Affixes + Visible Ranges", type: "textarea", wide: true },
+    { key: "tempers", label: "Temper Status / Notes", type: "textarea", wide: true },
     { key: "masterwork", label: "Masterwork", type: "number", min: 0, max: 12 },
-    { key: "sockets", label: "Sockets", type: "number", min: 0, max: 2 }
+    { key: "sockets", label: "Sockets", type: "number", min: 0, max: 2 },
+    { key: "socketContents", label: "Socket Contents", type: "text", wide: true }
 ];
 
 function emptyLoadoutItem() {
     return {
         name: "",
+        rarity: "",
         itemType: "",
         itemPower: 0,
         armor: 0,
+        baseArmor: 0,
         life: 0,
         defense: 0,
         damage: 0,
+        requiredLevel: 0,
         power: "",
+        powerValue: "",
+        powerMin: "",
+        powerMax: "",
         affixes: "",
+        affixDetails: [],
         tempers: "",
         masterwork: 0,
-        sockets: 0
+        sockets: 0,
+        socketContents: ""
     };
 }
 
@@ -219,23 +233,151 @@ function loadSelectedSlotFromLoadout() {
 const SKILL_SLOT_IDS = ["skill1", "skill2", "skill3", "skill4", "skill5", "skill6"];
 
 const GEAR_FIELD_SUFFIXES = [
-    "Name", "ItemType", "ItemPower", "Armor", "Life", "Defense",
-    "Damage", "Power", "Affixes", "Tempers", "Masterwork", "Sockets"
+    "Name", "Rarity", "ItemType", "ItemPower", "Armor", "Damage",
+    "RequiredLevel", "Power", "PowerValue", "PowerMin", "PowerMax",
+    "Tempers", "Masterwork", "Sockets", "SocketContents"
 ];
+
+const MAX_AFFIX_ROWS = 6;
 
 const ids = [
     "characterName", "className", "realm", "level", "difficulty", "goal",
     "archetype", "problem", ...SKILL_SLOT_IDS, "buildNotes", "comparisonSlot",
-    "equippedName", "equippedItemType", "equippedItemPower", "equippedArmor", "equippedLife",
-    "equippedDefense", "equippedDamage", "equippedPower", "equippedAffixes", "equippedTempers",
-    "equippedMasterwork", "equippedSockets",
-    "candidateName", "candidateItemType", "candidateItemPower", "candidateArmor", "candidateLife",
-    "candidateDefense", "candidateDamage", "candidatePower", "candidateAffixes", "candidateTempers",
-    "candidateMasterwork", "candidateSockets",
+    "equippedName", "equippedRarity", "equippedItemType", "equippedItemPower", "equippedArmor",
+    "equippedDamage", "equippedRequiredLevel", "equippedPower", "equippedPowerValue",
+    "equippedPowerMin", "equippedPowerMax", "equippedTempers", "equippedMasterwork",
+    "equippedSockets", "equippedSocketContents",
+    "candidateName", "candidateRarity", "candidateItemType", "candidateItemPower", "candidateArmor",
+    "candidateDamage", "candidateRequiredLevel", "candidatePower", "candidatePowerValue",
+    "candidatePowerMin", "candidatePowerMax", "candidateTempers", "candidateMasterwork",
+    "candidateSockets", "candidateSocketContents",
     "feedbackNotes"
 ];
 
 const el = Object.fromEntries(ids.map(id => [id, document.getElementById(id)]));
+
+function affixFieldId(prefix, index, key) {
+    return prefix + "Affix" + (index + 1) + key;
+}
+
+function renderGearAffixRows() {
+    SCREENSHOT_PREFIXES.forEach(prefix => {
+        const container = document.getElementById(prefix + "AffixRows");
+        if (!container) return;
+
+        container.innerHTML = "";
+
+        for (let index = 0; index < MAX_AFFIX_ROWS; index += 1) {
+            const row = document.createElement("div");
+            row.className = "affix-row";
+
+            const rowNumber = document.createElement("span");
+            rowNumber.className = "affix-row-number";
+            rowNumber.textContent = String(index + 1);
+            row.append(rowNumber);
+
+            [
+                ["Stat", "Stat name"],
+                ["Value", "Value"],
+                ["Min", "Roll low"],
+                ["Max", "Roll high"]
+            ].forEach(([key, placeholder]) => {
+                const input = document.createElement("input");
+                input.id = affixFieldId(prefix, index, key);
+                input.type = "text";
+                input.placeholder = placeholder;
+                input.setAttribute("aria-label", prefix + " affix " + (index + 1) + " " + placeholder);
+
+                input.addEventListener("input", () => {
+                    if (itemConfirmationRequired(prefix)) {
+                        invalidateItemConfirmation(prefix);
+                        updateGearSlotMismatchUI();
+                    }
+                    markUnsaved();
+                });
+
+                row.append(input);
+            });
+
+            container.append(row);
+        }
+    });
+}
+
+function getAffixDetails(prefix) {
+    const details = [];
+
+    for (let index = 0; index < MAX_AFFIX_ROWS; index += 1) {
+        const stat = document.getElementById(affixFieldId(prefix, index, "Stat"))?.value.trim() ?? "";
+        const value = document.getElementById(affixFieldId(prefix, index, "Value"))?.value.trim() ?? "";
+        const min = document.getElementById(affixFieldId(prefix, index, "Min"))?.value.trim() ?? "";
+        const max = document.getElementById(affixFieldId(prefix, index, "Max"))?.value.trim() ?? "";
+
+        if (stat || value || min || max) {
+            details.push({ stat, value, min, max });
+        }
+    }
+
+    return details;
+}
+
+function formatAffixDetails(details = []) {
+    return details
+        .filter(detail => detail?.stat || detail?.value)
+        .map(detail => {
+            const value = String(detail.value ?? "").trim();
+            const stat = String(detail.stat ?? "").trim();
+            const min = String(detail.min ?? "").trim();
+            const max = String(detail.max ?? "").trim();
+            const range = min || max
+                ? " [" + (min || "?") + " - " + (max || "?") + "]"
+                : "";
+
+            return (value + " " + stat + range).trim();
+        })
+        .join("\n");
+}
+
+function setAffixDetails(prefix, details = []) {
+    const normalized = Array.isArray(details) ? details.slice(0, MAX_AFFIX_ROWS) : [];
+
+    for (let index = 0; index < MAX_AFFIX_ROWS; index += 1) {
+        const detail = normalized[index] ?? {};
+        const values = {
+            Stat: detail.stat ?? "",
+            Value: detail.value ?? "",
+            Min: detail.min ?? "",
+            Max: detail.max ?? ""
+        };
+
+        Object.entries(values).forEach(([key, value]) => {
+            const input = document.getElementById(affixFieldId(prefix, index, key));
+            if (input) input.value = value;
+        });
+    }
+}
+
+function numericAffixValue(detail) {
+    return decimalFromOcr(String(detail?.value ?? ""));
+}
+
+function affixValueFor(details, pattern) {
+    return details
+        .filter(detail => pattern.test(String(detail?.stat ?? "")))
+        .reduce((sum, detail) => sum + numericAffixValue(detail), 0);
+}
+
+function itemDisplayName(item, fallback = "Item") {
+    const name = String(item?.name ?? "").trim();
+    if (name) return name;
+
+    const descriptor = [item?.rarity, item?.itemType]
+        .map(value => String(value ?? "").trim())
+        .filter(Boolean)
+        .join(" ");
+
+    return descriptor || fallback;
+}
 
 function getSkillSlotsFromForm() {
     return SKILL_SLOT_IDS.map(id => el[id].value.trim());
