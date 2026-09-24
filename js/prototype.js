@@ -1071,6 +1071,18 @@ function canonicalAffixLine(line) {
     })();
 
     if (!plausible) return "";
+
+    const visibleRange = decimalRangeFromLine(line);
+    if (
+        visibleRange &&
+        (
+            numericValue < visibleRange.low ||
+            numericValue > visibleRange.high
+        )
+    ) {
+        return "";
+    }
+
     return `${rawValue} ${label}`;
 }
 
