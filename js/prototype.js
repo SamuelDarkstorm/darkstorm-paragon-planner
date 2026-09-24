@@ -1069,11 +1069,14 @@ function baseArmorFromHeader(lines, startIndex, endIndex) {
         const line = lines[index];
         const armorMatch = line.match(/\bArmor\b/i);
         if (!armorMatch || armorMatch.index === undefined) continue;
-        if (/[+-]\s*[0-9]/.test(line)) continue;
+
+        // Base armor is unsigned. This also prevents +577 Armor from ever
+        // being treated as the item's base armor.
+        const beforeArmor = line.slice(0, armorMatch.index);
+        if (/[+-]\s*[0-9]/.test(beforeArmor)) continue;
 
         // Diablo may append its own comparison text after the base armor,
         // e.g. "910 Armor (-15.2% Toughness)". Only inspect text before Armor.
-        const beforeArmor = line.slice(0, armorMatch.index);
         const sameLineTokens = [...beforeArmor.matchAll(/[0-9OIlS][0-9OIlS,.]{1,7}/g)];
         if (sameLineTokens.length) {
             const value = integerFromOcr(sameLineTokens[sameLineTokens.length - 1][0]);
@@ -1480,8 +1483,7 @@ function parseDiabloItemText(rawText, slotKey) {
     let cursor = Math.max(0, rarityIndex + 1);
     const firstAffixIndex = lines.findIndex((line, index) =>
         index >= cursor &&
-        Boolean(affixStatDefinitionFromText(line)) &&
-        Boolean(firstSignedValue(line))
+        Boolean(affixStatDefinitionFromText(line))
     );
     const headerEnd = firstAffixIndex >= 0
         ? firstAffixIndex
@@ -1853,10 +1855,11 @@ function mergeScreenshotExtractions(primary, enhanced) {
             return;
         }
 
-        // Prefer a complete self-consistent record read directly from raw OCR.
-        if (detail.value) existing.value = detail.value;
-        if (detail.min) existing.min = detail.min;
-        if (detail.max) existing.max = detail.max;
+        // Fill missing pieces from a self-consistent raw record, but do not let
+        // a later/noisier pass overwrite a value already supported by a pass.
+        if (!existing.value && detail.value) existing.value = detail.value;
+        if (!existing.min && detail.min) existing.min = detail.min;
+        if (!existing.max && detail.max) existing.max = detail.max;
     });
 
     combinedAffixes.forEach(detail => {
@@ -1891,8 +1894,7 @@ function mergeScreenshotExtractions(primary, enhanced) {
             const start = Math.max(0, rarityIndex + 1);
             const firstAffix = passLines.findIndex((line, index) =>
                 index >= start &&
-                Boolean(affixStatDefinitionFromText(line)) &&
-                Boolean(firstSignedValue(line))
+                Boolean(affixStatDefinitionFromText(line))
             );
             const end = firstAffix >= 0 ? firstAffix : Math.min(passLines.length, start + 14);
             const armor = baseArmorFromHeader(passLines, start, end);
