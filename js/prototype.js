@@ -15,6 +15,10 @@ const prototypeState = {
     screenshotItemTypes: {
         equipped: "",
         candidate: ""
+    },
+    itemConfirmed: {
+        equipped: false,
+        candidate: false
     }
 };
 
@@ -469,6 +473,107 @@ function preferredComparisonSlot(itemType, currentSlot = el.comparisonSlot?.valu
     if (!slots.length) return null;
     if (currentSlot && slots.includes(currentSlot)) return currentSlot;
     return slots[0];
+}
+
+function itemConfirmationRequired(prefix) {
+    return Boolean(prototypeState.screenshots[prefix]);
+}
+
+function confirmationBlockingState() {
+    const pending = SCREENSHOT_PREFIXES.filter(prefix =>
+        itemConfirmationRequired(prefix) &&
+        !prototypeState.itemConfirmed[prefix]
+    );
+
+    return {
+        blocking: pending.length > 0,
+        pending
+    };
+}
+
+function syncGearActionAvailability() {
+    const mismatch = gearSlotMismatchState();
+    const confirmation = confirmationBlockingState();
+    const compareButton = document.getElementById("compareGearButton");
+    const equipButton = document.getElementById("equipCandidateButton");
+
+    if (compareButton) {
+        compareButton.disabled = mismatch.blocking || confirmation.blocking;
+    }
+
+    if ((mismatch.blocking || confirmation.blocking) && equipButton) {
+        equipButton.disabled = true;
+    }
+
+    return { mismatch, confirmation };
+}
+
+function updateItemConfirmationUI(prefix) {
+    const panel = document.getElementById(`${prefix}ConfirmationPanel`);
+    const status = document.getElementById(`${prefix}ConfirmationStatus`);
+    const button = document.getElementById(`${prefix}ConfirmButton`);
+
+    if (!panel || !status || !button) return;
+
+    const required = itemConfirmationRequired(prefix);
+    const confirmed = prototypeState.itemConfirmed[prefix];
+
+    panel.classList.remove("needs-confirmation", "confirmed");
+
+    if (!required) {
+        status.textContent = "No screenshot · not required";
+        button.disabled = true;
+        button.textContent = prefix === "equipped"
+            ? "Confirm Equipped Item Data"
+            : "Confirm Candidate Item Data";
+    } else if (confirmed) {
+        panel.classList.add("confirmed");
+        status.textContent = "✓ Gamer confirmed";
+        button.disabled = false;
+        button.textContent = "Confirmed · Reconfirm";
+    } else {
+        panel.classList.add("needs-confirmation");
+        status.textContent = "Needs gamer confirmation";
+        button.disabled = false;
+        button.textContent = prefix === "equipped"
+            ? "Confirm Equipped Item Data"
+            : "Confirm Candidate Item Data";
+    }
+
+    syncGearActionAvailability();
+}
+
+function updateAllItemConfirmationUI() {
+    SCREENSHOT_PREFIXES.forEach(updateItemConfirmationUI);
+}
+
+function invalidateItemConfirmation(prefix, { resetComparison = true } = {}) {
+    prototypeState.itemConfirmed[prefix] = false;
+
+    if (resetComparison) {
+        prototypeState.lastGearComparison = null;
+        prototypeState.candidateEquipped = false;
+        resetGearVerdict();
+    }
+
+    updateItemConfirmationUI(prefix);
+}
+
+function confirmItemData(prefix) {
+    if (!itemConfirmationRequired(prefix)) return;
+
+    const currentType = el[prefix + "ItemType"].value.trim();
+    if (currentType) {
+        prototypeState.screenshotItemTypes[prefix] = currentType;
+    }
+
+    prototypeState.itemConfirmed[prefix] = true;
+    prototypeState.lastGearComparison = null;
+    prototypeState.candidateEquipped = false;
+    resetGearVerdict();
+    updateItemConfirmationUI(prefix);
+    updateGearSlotMismatchUI();
+    markUnsaved();
 }
 
 function gearSlotMismatchState() {
