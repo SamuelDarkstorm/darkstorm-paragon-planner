@@ -1450,6 +1450,12 @@ function sequentialAffixes(lines, startIndex, stopPattern) {
             numeric > 0 &&
             (!range || (numeric >= range.low && numeric <= range.high));
 
+        // A range without a trustworthy value is not enough to assign that
+        // range to an affix. OCR can miss the value/row boundary and expose a
+        // later legendary-power range; keep the whole affix uncertain instead
+        // of displaying a confidently wrong roll range.
+        if (!valueValid) range = null;
+
         const percentSuffix = anchor.percent ? "%" : "";
         details.push({
             stat: anchor.stat,
