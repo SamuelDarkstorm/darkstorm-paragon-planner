@@ -1061,6 +1061,25 @@ function findHeaderLabel(lines, pattern, startIndex, endIndex) {
     return null;
 }
 
+function baseArmorFromRawText(rawText) {
+    const lines = cleanedOcrLines(rawText);
+
+    // Prefer the literal Diablo header record. This intentionally does not
+    // depend on affix boundaries: OCR already gives us "1,275 Armor" / "910 Armor".
+    for (const line of lines) {
+        const match = line.match(/(?:^|\s)([0-9OIlS][0-9OIlS,.]{2,7})\s+Armor\b/i);
+        if (!match) continue;
+
+        const beforeArmor = line.slice(0, match.index + match[0].indexOf(match[1]));
+        if (/[+-]\s*$/.test(beforeArmor)) continue;
+
+        const value = integerFromOcr(match[1]);
+        if (value >= 100 && value <= 100000) return value;
+    }
+
+    return 0;
+}
+
 function baseArmorFromHeader(lines, startIndex, endIndex) {
     const start = Math.max(0, startIndex);
     const end = Math.min(lines.length, Math.max(start, endIndex));
@@ -1541,7 +1560,9 @@ function parseDiabloItemText(rawText, slotKey) {
         uncertain.push("Item power");
     }
 
-    const baseArmor = baseArmorFromHeader(lines, cursor, headerEnd);
+    const baseArmor =
+        baseArmorFromRawText(rawText) ||
+        baseArmorFromHeader(lines, cursor, headerEnd);
     if (baseArmor) {
         fields.armor = baseArmor;
         detected.push("Armor");
@@ -1912,6 +1933,18 @@ function mergeScreenshotExtractions(primary, enhanced) {
     const rawPasses = [primary.rawText ?? "", enhanced.rawText ?? ""]
         .map(cleanedOcrLines)
         .filter(lines => lines.length);
+
+    if (!merged.fields.armor) {
+        const directArmor =
+            baseArmorFromRawText(primary.rawText ?? "") ||
+            baseArmorFromRawText(enhanced.rawText ?? "");
+
+        if (directArmor) {
+            merged.fields.armor = directArmor;
+            merged.detected.push("Armor");
+            merged.uncertain = merged.uncertain.filter(label => label !== "Armor");
+        }
+    }
 
     if (!merged.fields.armor) {
         for (const passLines of rawPasses) {
