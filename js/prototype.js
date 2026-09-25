@@ -1492,6 +1492,63 @@ function sequentialAffixes(lines, startIndex, stopPattern) {
     };
 }
 
+function powerBlockFromLines(lines, affixEndIndex = 0) {
+    const metadataPattern = /\b(?:empty socket|requires level|sell value|durability|equip|compare|mark as junk|drop|scroll|tempers?)\b/i;
+    const explicitStart = lines.findIndex((line, index) =>
+        index >= affixEndIndex && /\b(?:imprinted|aspect)\b/i.test(line)
+    );
+
+    // Diablo does not always OCR the visual power label. When that happens,
+    // start immediately after the final structured affix and look for prose
+    // containing a percent roll/range before item metadata.
+    let start = explicitStart;
+    if (start < 0) {
+        for (let index = Math.max(affixEndIndex, 0); index < lines.length; index += 1) {
+            if (metadataPattern.test(lines[index])) break;
+            const window = lines.slice(index, Math.min(lines.length, index + 4)).join(" ");
+            if (
+                /\b(?:damage|increased|deals|makes|enemies|vulnerable|ground|seconds?)\b/i.test(window) &&
+                /\d+(?:\.\d+)?\s*%/.test(window)
+            ) {
+                start = index;
+                break;
+            }
+        }
+    }
+
+    if (start < 0) return null;
+
+    const powerLines = [];
+    for (let index = start; index < lines.length && powerLines.length < 10; index += 1) {
+        const line = lines[index];
+        if (index > start && metadataPattern.test(line)) break;
+        powerLines.push(line);
+    }
+
+    const text = powerLines.join(" ")
+        .replace(/^.*?\b(?:imprinted|aspect)\b\s*:?\s*/i, "")
+        .trim();
+
+    if (!powerLooksUsable(text)) return null;
+
+    const range = decimalRangeFromLine(text);
+    const percents = [...text.matchAll(/([0-9OIlS,.]+(?:\.[0-9]+)?)\s*%/gi)]
+        .map(match => decimalFromOcr(match[1]))
+        .filter(value => Number.isFinite(value) && value > 0);
+
+    let roll = 0;
+    if (range) {
+        roll = percents.find(value => value >= range.low && value <= range.high) ?? 0;
+    }
+
+    return {
+        text,
+        roll: roll ? String(roll) + "%" : "",
+        min: range ? String(range.low) + "%" : "",
+        max: range ? String(range.high) + "%" : ""
+    };
+}
+
 function parseDiabloItemText(rawText, slotKey) {
     const lines = cleanedOcrLines(rawText);
     const joined = lines.join("\n");
@@ -1624,43 +1681,20 @@ function parseDiabloItemText(rawText, slotKey) {
         detected.push("Maximum Life");
     }
 
-    // Power starts where the tooltip says Imprinted or Aspect and owns the
-    // following prose until sockets / level / sell / durability metadata.
-    const powerStart = lines.findIndex(line => /\b(?:imprinted|aspect)\b/i.test(line));
-    if (powerStart >= 0) {
-        const powerLines = [];
-        for (let index = powerStart; index < lines.length && powerLines.length < 9; index += 1) {
-            const line = lines[index];
-            if (
-                index > powerStart &&
-                /\b(?:empty socket|requires level|sell value|durability|equip|compare|mark as junk|drop|scroll|tempers?)\b/i.test(line)
-            ) break;
-            powerLines.push(line);
-        }
+    // Power owns the prose after the structured affix block. Prefer explicit
+    // Aspect/Imprinted labels, but recover conservatively when OCR drops them.
+    const finalAffixLine = affixAnchors(affixLines, cursor, stopPattern)
+        .reduce((max, anchor) => Math.max(max, anchor.lineIndex), cursor);
+    const powerBlock = powerBlockFromLines(lines, finalAffixLine + 1);
 
-        const power = powerLines.join(" ")
-            .replace(/^.*?\b(?:imprinted|aspect)\b\s*:?\s*/i, "")
-            .trim();
-
-        if (powerLooksUsable(power)) {
-            fields.power = power;
-            detected.push("Aspect / unique power");
-            const visibleRange = decimalRangeFromLine(power);
-            const firstPercent = power.match(/([0-9OIlS,.]+(?:\.[0-9]+)?)\s*%/i);
-            if (visibleRange && firstPercent) {
-                const roll = decimalFromOcr(firstPercent[1]);
-                fields.powerMin = String(visibleRange.low) + "%";
-                fields.powerMax = String(visibleRange.high) + "%";
-                if (roll >= visibleRange.low && roll <= visibleRange.high) {
-                    fields.powerValue = String(roll) + "%";
-                    detected.push("Power roll");
-                } else {
-                    uncertain.push("Power roll");
-                }
-            }
-        } else if (power) {
-            uncertain.push("Aspect / unique power");
-        }
+    if (powerBlock) {
+        fields.power = powerBlock.text;
+        fields.powerValue = powerBlock.roll;
+        fields.powerMin = powerBlock.min;
+        fields.powerMax = powerBlock.max;
+        detected.push("Aspect / unique power");
+        if (powerBlock.roll) detected.push("Power roll");
+        else if (powerBlock.min || powerBlock.max) uncertain.push("Power roll");
     }
 
     const requiredLevelMatch = joined.match(/\bRequires\s+Level\s+([0-9OIlS]{1,3})\b/i);
