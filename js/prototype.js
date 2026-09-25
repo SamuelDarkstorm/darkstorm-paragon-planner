@@ -1589,8 +1589,24 @@ function parseDiabloItemText(rawText, slotKey) {
         }
     }
 
-    const stopPattern = /\b(?:imprinted|aspect|empty socket|requires level|sell value|durability|tempers?|mark as junk|compare|drop)\b/i;
-    const parsedAffixes = sequentialAffixes(lines, cursor, stopPattern);
+    // Affixes own only the stat block. Legendary/unique power prose owns
+    // everything after the first power boundary, even when OCR misses the
+    // literal "Aspect" or "Imprinted" label. This prevents power roll ranges
+    // from leaking backward into the final affix.
+    const explicitPowerIndex = lines.findIndex((line, index) =>
+        index >= cursor && /\b(?:imprinted|aspect)\b/i.test(line)
+    );
+    const metadataIndex = lines.findIndex((line, index) =>
+        index >= cursor &&
+        /\b(?:empty socket|requires level|sell value|durability|tempers?|mark as junk|compare|drop|scroll)\b/i.test(line)
+    );
+    const affixHardEnd = explicitPowerIndex >= 0
+        ? explicitPowerIndex
+        : (metadataIndex >= 0 ? metadataIndex : lines.length);
+    const affixLines = lines.slice(0, affixHardEnd);
+
+    const stopPattern = /\b(?:imprinted|aspect|empty socket|requires level|sell value|durability|tempers?|mark as junk|compare|drop|scroll)\b/i;
+    const parsedAffixes = sequentialAffixes(affixLines, cursor, stopPattern);
     fields.affixDetails = parsedAffixes.details;
     fields.affixes = formatAffixDetails(fields.affixDetails);
     uncertain.push(...parsedAffixes.uncertain);
