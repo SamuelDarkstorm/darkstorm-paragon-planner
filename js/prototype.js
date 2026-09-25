@@ -1505,10 +1505,10 @@ function powerBlockFromLines(lines, affixEndIndex = 0) {
     if (start < 0) {
         for (let index = Math.max(affixEndIndex, 0); index < lines.length; index += 1) {
             if (metadataPattern.test(lines[index])) break;
-            const window = lines.slice(index, Math.min(lines.length, index + 4)).join(" ");
+            const window = lines.slice(index, Math.min(lines.length, index + 6)).join(" ");
             if (
-                /\b(?:damage|increased|deals|makes|enemies|vulnerable|ground|seconds?)\b/i.test(window) &&
-                /\d+(?:\.\d+)?\s*%/.test(window)
+                /\b(?:damage|increased|deals|makes|enemies|vulnerable|ground|desecrated|seconds?)\b/i.test(window) &&
+                /[0-9OIlS]+(?:\.[0-9OIlS]+)?\s*%/.test(window)
             ) {
                 start = index;
                 break;
