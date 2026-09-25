@@ -1564,6 +1564,9 @@ function parseDiabloItemText(rawText, slotKey) {
         baseArmorFromRawText(rawText) ||
         baseArmorFromHeader(lines, cursor, headerEnd);
     if (baseArmor) {
+        // The comparison form renders Base Armor from baseArmor first.
+        // Keep the legacy armor mirror for older saved prototype data.
+        fields.baseArmor = baseArmor;
         fields.armor = baseArmor;
         detected.push("Armor");
     } else {
@@ -1768,6 +1771,7 @@ function mergeScreenshotExtractions(primary, enhanced) {
         itemType: "Item type",
         itemPower: "Item power",
         armor: "Armor",
+        baseArmor: "Armor",
         damage: "Damage",
         requiredLevel: "Required level",
         power: "Aspect / unique power",
@@ -1940,6 +1944,7 @@ function mergeScreenshotExtractions(primary, enhanced) {
             baseArmorFromRawText(enhanced.rawText ?? "");
 
         if (directArmor) {
+            merged.fields.baseArmor = directArmor;
             merged.fields.armor = directArmor;
             merged.detected.push("Armor");
             merged.uncertain = merged.uncertain.filter(label => label !== "Armor");
@@ -1960,6 +1965,7 @@ function mergeScreenshotExtractions(primary, enhanced) {
             const end = firstAffix >= 0 ? firstAffix : Math.min(passLines.length, start + 14);
             const armor = baseArmorFromHeader(passLines, start, end);
             if (armor) {
+                merged.fields.baseArmor = armor;
                 merged.fields.armor = armor;
                 merged.detected.push("Armor");
                 merged.uncertain = merged.uncertain.filter(label => label !== "Armor");
