@@ -1904,12 +1904,31 @@ function mergeScreenshotExtractions(primary, enhanced) {
     // Reparse the combined raw OCR after both passes are available. This
     // preserves the actual top-to-bottom tooltip records and prevents a noisy
     // enhanced pass from relabeling a good primary-pass value.
-    const combinedRawLines = cleanedOcrLines([
-        primary.rawText ?? "",
-        enhanced.rawText ?? ""
-    ].join("\n"));
-    const combinedStopPattern = /\b(?:imprinted|aspect|empty socket|requires level|sell value|durability|tempers?|mark as junk|compare|drop)\b/i;
-    const rawAffixes = sequentialAffixes(combinedRawLines, 0, combinedStopPattern).details;
+    // Reparse each OCR pass independently. Never concatenate passes before
+    // affix parsing: doing so lets the end of the primary pass borrow a range
+    // from the beginning/power block of the enhanced pass.
+    const combinedStopPattern = /\b(?:imprinted|aspect|empty socket|requires level|sell value|durability|tempers?|mark as junk|compare|drop|scroll)\b/i;
+    const rawAffixes = [primary.rawText ?? "", enhanced.rawText ?? ""]
+        .flatMap(raw => {
+            const passLines = cleanedOcrLines(raw);
+            if (!passLines.length) return [];
+
+            const explicitPowerIndex = passLines.findIndex(line =>
+                /\b(?:imprinted|aspect)\b/i.test(line)
+            );
+            const metadataIndex = passLines.findIndex(line =>
+                /\b(?:empty socket|requires level|sell value|durability|tempers?|mark as junk|compare|drop|scroll)\b/i.test(line)
+            );
+            const hardEnd = explicitPowerIndex >= 0
+                ? explicitPowerIndex
+                : (metadataIndex >= 0 ? metadataIndex : passLines.length);
+
+            return sequentialAffixes(
+                passLines.slice(0, hardEnd),
+                0,
+                combinedStopPattern
+            ).details;
+        });
 
     rawAffixes.forEach(detail => {
         if (!detail?.stat) return;
