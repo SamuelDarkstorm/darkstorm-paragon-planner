@@ -1508,7 +1508,7 @@ function powerBlockFromLines(lines, affixEndIndex = 0) {
             const window = lines.slice(index, Math.min(lines.length, index + 6)).join(" ");
             if (
                 /\b(?:damage|increased|deals|makes|enemies|vulnerable|ground|desecrated|seconds?)\b/i.test(window) &&
-                /[0-9OIlS]+(?:\.[0-9OIlS]+)?\s*%/.test(window)
+                /[0-9OIlS]+(?:\.[0-9OIlS]+)?\s*%(?:\s*\|?\s*\[x\])?/.test(window)
             ) {
                 start = index;
                 break;
@@ -1527,6 +1527,8 @@ function powerBlockFromLines(lines, affixEndIndex = 0) {
 
     const text = powerLines.join(" ")
         .replace(/^.*?\b(?:imprinted|aspect)\b\s*:?\s*/i, "")
+        .replace(/\|?\s*\[x\]\s*/gi, " ")
+        .replace(/\s+/g, " ")
         .trim();
 
     if (!powerLooksUsable(text)) return null;
