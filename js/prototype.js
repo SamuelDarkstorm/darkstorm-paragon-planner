@@ -151,6 +151,10 @@ function renderEquipmentLoadout() {
             </div>
             <div id="loadout-${slotId}-readout" class="screenshot-readout" hidden>
                 <p id="loadout-${slotId}-readout-text" class="muted"></p>
+                <details id="loadout-${slotId}-ocr-debug" class="ocr-debug">
+                    <summary>OCR header diagnostic</summary>
+                    <pre id="loadout-${slotId}-ocr-debug-text"></pre>
+                </details>
             </div>
         `;
         fields.append(intake);
@@ -220,7 +224,9 @@ function wireLoadoutScreenshotIntake(slot) {
     const status = document.getElementById(`loadout-${slotKey}-screenshot-status`);
     const readout = document.getElementById(`loadout-${slotKey}-readout`);
     const readoutText = document.getElementById(`loadout-${slotKey}-readout-text`);
-    if (!input || !read || !confirm || !remove || !preview || !empty || !status || !readout || !readoutText) return;
+    const debug = document.getElementById(`loadout-${slotKey}-ocr-debug`);
+    const debugText = document.getElementById(`loadout-${slotKey}-ocr-debug-text`);
+    if (!input || !read || !confirm || !remove || !preview || !empty || !status || !readout || !readoutText || !debug || !debugText) return;
 
     input.addEventListener("change", event => {
         const file = event.target.files?.[0];
@@ -287,7 +293,8 @@ function wireLoadoutScreenshotIntake(slot) {
             });
 
             let confidence = Number(result?.data?.confidence ?? 0);
-            let extraction = parseDiabloItemText(result?.data?.text ?? "", slotKey);
+            const rawOcrPasses = [result?.data?.text ?? ""];
+            let extraction = parseDiabloItemText(rawOcrPasses[0], slotKey);
             let enhancedUsed = false;
 
             if (shouldRunEnhancedRead(extraction)) {
@@ -295,9 +302,10 @@ function wireLoadoutScreenshotIntake(slot) {
                     status.textContent = "Trying enhanced item-card read…";
                     const enhancedSource = await createEnhancedOcrSource(file);
                     const enhancedResult = await window.Tesseract.recognize(enhancedSource, "eng");
+                    rawOcrPasses.push(enhancedResult?.data?.text ?? "");
                     extraction = mergeScreenshotExtractions(
                         extraction,
-                        parseDiabloItemText(enhancedResult?.data?.text ?? "", slotKey)
+                        parseDiabloItemText(rawOcrPasses[1], slotKey)
                     );
                     confidence = Math.max(confidence, Number(enhancedResult?.data?.confidence ?? 0));
                     enhancedUsed = true;
@@ -316,6 +324,20 @@ function wireLoadoutScreenshotIntake(slot) {
 
             applyExtractionToLoadout(slotKey, extraction);
             prototypeState.loadoutExtractions[slotKey] = extraction;
+
+            const headerDiagnostic = rawOcrPasses.map((raw, passIndex) => {
+                const diagnosticLines = cleanedOcrLines(raw);
+                const powerIndex = diagnosticLines.findIndex(line => /\bitem\s+power\b/i.test(line));
+                const end = powerIndex >= 0 ? Math.min(diagnosticLines.length, powerIndex + 2) : Math.min(diagnosticLines.length, 12);
+                const start = powerIndex >= 0 ? Math.max(0, powerIndex - 8) : 0;
+                return `PASS ${passIndex + 1}\n` + diagnosticLines
+                    .slice(start, end)
+                    .map((line, offset) => `${start + offset}: ${line}`)
+                    .join("\n");
+            }).join("\n\n");
+
+            debugText.textContent = headerDiagnostic || "No OCR header text returned.";
+            debug.open = true;
             readout.hidden = false;
             readoutText.textContent =
                 `OCR draft loaded into ${slot.label} (${Math.round(confidence)}% text confidence). Review the fields below, correct anything needed, then confirm.`;
