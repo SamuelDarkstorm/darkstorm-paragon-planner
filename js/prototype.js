@@ -1384,6 +1384,58 @@ function exactItemTypeFromText(text) {
     return match?.[1] ?? "";
 }
 
+function recoverItemIdentityFromRawPasses(rawPasses = []) {
+    const results = [];
+
+    rawPasses.forEach(raw => {
+        const lines = cleanedOcrLines(raw);
+        if (!lines.length) return;
+
+        const rarityIndex = lines.findIndex(line => /\b(?:legendary|unique|rare|magic)\b/i.test(line));
+        if (rarityIndex < 0) return;
+
+        const rarityMatch = lines[rarityIndex].match(/\b(Legendary|Unique|Rare|Magic)\b/i);
+        const rarity = rarityMatch
+            ? rarityMatch[1][0].toUpperCase() + rarityMatch[1].slice(1).toLowerCase()
+            : "";
+
+        // Reconstruct wrapped item types from the rarity line plus nearby header
+        // lines. Prefer the longest recognized type so "Two-Handed Sword" wins
+        // over the nested generic "Sword".
+        const typeWindow = lines.slice(rarityIndex, Math.min(lines.length, rarityIndex + 4)).join(" ");
+        const normalizedWindow = typeWindow.toLowerCase().replace(/[–—]/g, "-").replace(/\s+/g, " ");
+        const typeMatches = OCR_ITEM_TYPES
+            .filter(([needle]) => normalizedWindow.includes(needle))
+            .sort((a, b) => b[0].length - a[0].length);
+        const itemType = typeMatches[0]?.[1] ?? "";
+
+        const nameResult = parseItemName(lines, rarityIndex);
+        results.push({ rarity, itemType, name: nameResult.confident ? nameResult.value : "" });
+    });
+
+    const chooseConsensus = key => {
+        const values = results.map(result => result[key]).filter(Boolean);
+        if (!values.length) return "";
+        const groups = new Map();
+        values.forEach(value => {
+            const normalized = key === "name" ? normalizedItemName(value) : value.toLowerCase();
+            if (!groups.has(normalized)) groups.set(normalized, []);
+            groups.get(normalized).push(value);
+        });
+        const best = [...groups.values()].sort((a, b) => b.length - a.length)[0];
+        // For clean header identity fields, a single usable pass is evidence;
+        // conflicting nonempty passes still fail closed.
+        if (groups.size > 1) return "";
+        return best[0];
+    };
+
+    return {
+        rarity: chooseConsensus("rarity"),
+        itemType: chooseConsensus("itemType"),
+        name: chooseConsensus("name")
+    };
+}
+
 function normalizedItemName(value) {
     return String(value ?? "")
         .toLowerCase()
@@ -2245,6 +2297,17 @@ function parseDiabloItemText(rawText, slotKey) {
         index >= cursor &&
         /\b(?:empty socket|requires level|sell value|durability|tempers?|mark as junk|compare|drop|scroll)\b/i.test(line)
     );
+    let inferredPowerIndex = -1;
+    if (explicitPowerIndex < 0) {
+        inferredPowerIndex = lines.findIndex((line, index) => {
+            if (index < cursor) return false;
+            const window = lines.slice(index, Math.min(lines.length, index + 5)).join(" ");
+            const actionProse = /\b(?:when\s+you|your\s+summons|a\s+dark\s+aura|consuming\s+a\s+corpse|only\s+army)\b/i.test(window);
+            const powerLanguage = /\b(?:trigger|increased\s+damage|vampiric\s+curse|decrepify|iron\s+maiden|thorns\s+attack|souls?)\b/i.test(window);
+            return actionProse && powerLanguage;
+        });
+    }
+
     let uniquePowerIndex = -1;
     if (explicitPowerIndex < 0 && fields.rarity === "Unique") {
         uniquePowerIndex = lines.findIndex((line, index) =>
@@ -2254,7 +2317,11 @@ function parseDiabloItemText(rawText, slotKey) {
     }
     const affixHardEnd = explicitPowerIndex >= 0
         ? explicitPowerIndex
-        : (uniquePowerIndex >= 0 ? uniquePowerIndex : (metadataIndex >= 0 ? metadataIndex : lines.length));
+        : (uniquePowerIndex >= 0
+            ? uniquePowerIndex
+            : (inferredPowerIndex >= 0
+                ? inferredPowerIndex
+                : (metadataIndex >= 0 ? metadataIndex : lines.length)));
     const affixLines = lines.slice(0, affixHardEnd);
 
     const stopPattern = /\b(?:imprinted|aspect|empty socket|requires level|sell value|durability|tempers?|mark as junk|compare|drop|scroll)\b/i;
@@ -2279,7 +2346,9 @@ function parseDiabloItemText(rawText, slotKey) {
     // comparison text creates a late false affix anchor.
     const powerSearchStart = explicitPowerIndex >= 0
         ? explicitPowerIndex
-        : (uniquePowerIndex >= 0 ? uniquePowerIndex : finalAffixLine + 1);
+        : (uniquePowerIndex >= 0
+            ? uniquePowerIndex
+            : (inferredPowerIndex >= 0 ? inferredPowerIndex : finalAffixLine + 1));
     const powerBlock = powerBlockFromLines(lines, powerSearchStart);
 
     if (powerBlock) {
@@ -2648,7 +2717,24 @@ function mergeScreenshotExtractions(primary, enhanced) {
     // Scalar base stats are trustworthy when either pass found a plausible
     // bounded header value. Re-read both raw passes before finalizing merge so
     // a good primary Armor value cannot disappear because enhanced OCR missed it.
-    const rawPasses = [primary.rawText ?? "", enhanced.rawText ?? ""]
+    const rawTexts = [primary.rawText ?? "", enhanced.rawText ?? ""].filter(Boolean);
+    const identity = recoverItemIdentityFromRawPasses(rawTexts);
+    if (identity.rarity) {
+        merged.fields.rarity = identity.rarity;
+        merged.detected.push("Rarity");
+    }
+    if (identity.itemType) {
+        merged.fields.itemType = identity.itemType;
+        merged.detected.push("Item type");
+        merged.rejected = merged.rejected.filter(label => label !== "Item type");
+    }
+    if (identity.name) {
+        merged.fields.name = identity.name;
+        merged.detected.push("Name");
+        merged.uncertain = merged.uncertain.filter(label => label !== "Name");
+    }
+
+    const rawPasses = rawTexts
         .map(cleanedOcrLines)
         .filter(lines => lines.length);
 
