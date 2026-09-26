@@ -2238,6 +2238,40 @@ function cleanPowerText(value) {
         .trim();
 }
 
+function socketEffectFromLines(lines) {
+    const effectIndex = lines.findIndex(line =>
+        /\+\s*[0-9OIlS,.]+\s+(?:Poison|Fire|Cold|Lightning|Shadow)\s+Resistance\b/i.test(line)
+    );
+    if (effectIndex < 0) return null;
+
+    const match = lines[effectIndex].match(
+        /\+\s*([0-9OIlS,.]+)\s+(Poison|Fire|Cold|Lightning|Shadow)\s+Resistance\b/i
+    );
+    if (!match) return null;
+
+    const value = integerFromOcr(match[1]);
+    if (!value) return null;
+    const element = match[2][0].toUpperCase() + match[2].slice(1).toLowerCase();
+    return {
+        lineIndex: effectIndex,
+        text: `Gem: +${value} ${element} Resistance`
+    };
+}
+
+function uniquePowerStartIndex(lines, startIndex = 0) {
+    const strongPatterns = [
+        /\ba\s*dark\s+aura\s+surrounds\s+you\b/i,
+        /\byour\s+summons?\b/i,
+        /\bconsuming\s+a\s+corpse\b/i,
+        /\bonly\s+army\s+of\s+the\s+dead\b/i
+    ];
+    for (let index = Math.max(0, startIndex); index < lines.length; index += 1) {
+        const normalized = String(lines[index] ?? "").replace(/[^A-Za-z0-9%]+/g, " ").replace(/\s+/g, " ").trim();
+        if (strongPatterns.some(pattern => pattern.test(normalized))) return index;
+    }
+    return -1;
+}
+
 function powerBlockFromLines(lines, affixEndIndex = 0) {
     const metadataPattern = /\b(?:empty socket|requires level|sell value|durability|equip|compare|mark as junk|drop|scroll|tempers?|properties lost when equipped|poison resistance|fire resistance|cold resistance|lightning resistance|shadow resistance)\b|\(\s*[0-9OIlS]{1,4}\s*\/\s*[0-9OIlS,]{3,}\s*\)/i;
     const explicitStart = lines.findIndex((line, index) =>
@@ -2474,22 +2508,22 @@ function parseDiabloItemText(rawText, slotKey) {
     if (explicitPowerIndex < 0 && fields.rarity === "Unique") {
         // Prefer the earliest strong Unique-power opening. Continuation prose
         // such as "Curses inflicted..." must not outrank "A dark aura...".
-        const strongOpen = lines.findIndex((line, index) =>
-            index >= cursor &&
-            /\b(?:your\s+summons|a\s+dark\s+aura|only\s+army|consuming\s+a\s+corpse)\b/i.test(line)
-        );
+        const strongOpen = uniquePowerStartIndex(lines, cursor);
         const continuationOpen = lines.findIndex((line, index) =>
             index >= cursor && /\bcurses?\s+inflicted\b/i.test(line)
         );
         uniquePowerIndex = strongOpen >= 0 ? strongOpen : continuationOpen;
     }
+    const socketEffect = socketEffectFromLines(lines);
     const affixHardEnd = explicitPowerIndex >= 0
         ? explicitPowerIndex
         : (uniquePowerIndex >= 0
             ? uniquePowerIndex
             : (inferredPowerIndex >= 0
                 ? inferredPowerIndex
-                : (metadataIndex >= 0 ? metadataIndex : lines.length)));
+                : (socketEffect?.lineIndex >= 0
+                    ? socketEffect.lineIndex
+                    : (metadataIndex >= 0 ? metadataIndex : lines.length))));
     const affixLines = lines.slice(0, affixHardEnd);
 
     const stopPattern = /\b(?:imprinted|aspect|empty socket|requires level|sell value|durability|tempers?|mark as junk|compare|drop|scroll)\b/i;
@@ -2594,6 +2628,11 @@ function parseDiabloItemText(rawText, slotKey) {
     if (socketMatches.length) {
         fields.sockets = Math.min(2, socketMatches.length);
         fields.socketContents = Array(fields.sockets).fill("Empty").join(", ");
+        detected.push("Sockets");
+        detected.push("Socket contents");
+    } else if (socketEffect) {
+        fields.sockets = 1;
+        fields.socketContents = socketEffect.text;
         detected.push("Sockets");
         detected.push("Socket contents");
     }
@@ -2856,9 +2895,15 @@ function mergeScreenshotExtractions(primary, enhanced) {
             const metadataIndex = passLines.findIndex(line =>
                 /\b(?:empty socket|requires level|sell value|durability|tempers?|mark as junk|compare|drop|scroll)\b/i.test(line)
             );
+            const uniqueStart = uniquePowerStartIndex(passLines, 0);
+            const socketEffect = socketEffectFromLines(passLines);
             const hardEnd = explicitPowerIndex >= 0
                 ? explicitPowerIndex
-                : (metadataIndex >= 0 ? metadataIndex : passLines.length);
+                : (uniqueStart >= 0
+                    ? uniqueStart
+                    : (socketEffect?.lineIndex >= 0
+                        ? socketEffect.lineIndex
+                        : (metadataIndex >= 0 ? metadataIndex : passLines.length)));
 
             return sequentialAffixes(
                 passLines.slice(0, hardEnd),
@@ -2979,13 +3024,15 @@ function mergeScreenshotExtractions(primary, enhanced) {
         }
     }
 
-    if (!merged.fields.power) {
+    {
         const powerCandidates = [primary.rawText ?? "", enhanced.rawText ?? ""]
             .map(raw => {
                 const passLines = cleanedOcrLines(raw);
                 if (!passLines.length) return null;
 
                 const stopPattern = /\b(?:imprinted|aspect|empty socket|requires level|sell value|durability|tempers?|mark as junk|compare|drop|scroll)\b/i;
+                const uniqueStart = uniquePowerStartIndex(passLines, 0);
+                if (uniqueStart >= 0) return powerBlockFromLines(passLines, uniqueStart);
                 const anchors = affixAnchors(passLines, 0, stopPattern);
                 const finalAffixLine = anchors.reduce(
                     (max, anchor) => Math.max(max, anchor.lineIndex),
@@ -3006,13 +3053,30 @@ function mergeScreenshotExtractions(primary, enhanced) {
             });
 
         const recoveredPower = powerCandidates[0];
-        if (recoveredPower) {
+        const recoveredLooksComplete = recoveredPower &&
+            /\b(?:a\s+dark\s+aura|your\s+summons|when\s+you|cold\s+damage|your\s+desecrated)\b/i.test(recoveredPower.text);
+        const currentLooksFragmentary = !/\b(?:a\s+dark\s+aura|your\s+summons|when\s+you|cold\s+damage|your\s+desecrated)\b/i.test(merged.fields.power ?? "");
+        if (recoveredPower && (recoveredLooksComplete || currentLooksFragmentary)) {
             merged.fields.power = recoveredPower.text;
             merged.fields.powerValue = recoveredPower.roll;
             merged.fields.powerMin = recoveredPower.min;
             merged.fields.powerMax = recoveredPower.max;
             merged.detected.push("Aspect / unique power");
             if (recoveredPower.roll) merged.detected.push("Power roll");
+        }
+    }
+
+    const mergedSocketEffect = rawPasses
+        .map(socketEffectFromLines)
+        .find(Boolean);
+    if (mergedSocketEffect) {
+        merged.fields.sockets = 1;
+        merged.fields.socketContents = mergedSocketEffect.text;
+        merged.detected.push("Sockets", "Socket contents");
+        for (let index = combinedAffixes.length - 1; index >= 0; index -= 1) {
+            if (/^(?:Poison|Fire|Cold|Lightning|Shadow) Resistance$/i.test(combinedAffixes[index].stat)) {
+                combinedAffixes.splice(index, 1);
+            }
         }
     }
 
