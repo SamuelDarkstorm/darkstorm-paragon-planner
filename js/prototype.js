@@ -108,7 +108,9 @@ function renderEquipmentLoadout() {
         const card = document.createElement("details");
         card.className = "equipment-slot-card";
         card.dataset.loadoutSlot = slot.key;
-        card.open = slot.key === "chest" || slot.key === "mainHand";
+        // Start every equipment slot collapsed. The player opens only the
+        // slot they want to inspect or edit, keeping the loadout scannable.
+        card.open = false;
 
         const summary = document.createElement("summary");
 
