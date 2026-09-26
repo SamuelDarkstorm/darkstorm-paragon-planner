@@ -19,6 +19,14 @@ const prototypeState = {
     itemConfirmed: {
         equipped: false,
         candidate: false
+    },
+    continuations: {
+        equipped: null,
+        candidate: null
+    },
+    screenshotIncomplete: {
+        equipped: false,
+        candidate: false
     }
 };
 
@@ -436,8 +444,176 @@ function screenshotElements(prefix) {
         dropZone: document.getElementById(`${prefix}ScreenshotDropZone`),
         readout: document.getElementById(`${prefix}ScreenshotReadout`),
         readoutText: document.getElementById(`${prefix}ScreenshotReadoutText`),
-        ocrText: document.getElementById(`${prefix}ScreenshotOcrText`)
+        ocrText: document.getElementById(`${prefix}ScreenshotOcrText`),
+        continuationInput: document.getElementById(`${prefix}ContinuationInput`),
+        continuationLabel: document.getElementById(`${prefix}ContinuationLabel`),
+        continuationRead: document.getElementById(`${prefix}ContinuationRead`),
+        continuationNotice: document.getElementById(`${prefix}ContinuationNotice`),
+        continuationNoticeText: document.getElementById(`${prefix}ContinuationNoticeText`)
     };
+}
+
+function extractionShowsScroll(extraction) {
+    return /\bScroll\s+(?:Down|Up)\b/i.test(extraction?.rawText ?? "");
+}
+
+function updateContinuationUI(prefix) {
+    const ui = screenshotElements(prefix);
+    const incomplete = Boolean(prototypeState.screenshotIncomplete[prefix]);
+    const continuation = prototypeState.continuations[prefix];
+
+    if (ui.continuationNotice) ui.continuationNotice.hidden = !incomplete;
+    if (ui.continuationLabel) ui.continuationLabel.hidden = !incomplete;
+    if (ui.continuationRead) {
+        ui.continuationRead.hidden = !incomplete;
+        ui.continuationRead.disabled = !continuation?.file;
+        ui.continuationRead.textContent = continuation?.file
+            ? "Read continuation"
+            : "Read continuation";
+    }
+    if (ui.continuationNoticeText && incomplete) {
+        ui.continuationNoticeText.textContent = continuation?.file
+            ? `Continuation selected: ${continuation.fileName}. Read it to merge this item's remaining data.`
+            : "Darkstorm detected a scrollable tooltip. Add the scrolled continuation before confirming this item.";
+    }
+}
+
+function clearContinuation(prefix) {
+    const continuation = prototypeState.continuations[prefix];
+    if (continuation?.url) URL.revokeObjectURL(continuation.url);
+    prototypeState.continuations[prefix] = null;
+    prototypeState.screenshotIncomplete[prefix] = false;
+    const ui = screenshotElements(prefix);
+    if (ui.continuationInput) ui.continuationInput.value = "";
+    updateContinuationUI(prefix);
+}
+
+function setContinuationScreenshot(prefix, file) {
+    if (!file) return;
+    if (file.type && !file.type.startsWith("image/")) {
+        window.alert("Please choose an image file for the continuation screenshot.");
+        return;
+    }
+
+    const previous = prototypeState.continuations[prefix];
+    if (previous?.url) URL.revokeObjectURL(previous.url);
+
+    prototypeState.continuations[prefix] = {
+        file,
+        url: URL.createObjectURL(file),
+        fileName: file.name || "Continuation screenshot",
+        size: file.size || 0,
+        type: file.type || "image"
+    };
+    prototypeState.itemConfirmed[prefix] = false;
+    updateContinuationUI(prefix);
+    updateItemConfirmationUI(prefix);
+}
+
+function sameItemContinuationCheck(prefix, baseExtraction, continuationExtraction) {
+    const current = getGear(prefix);
+    const next = continuationExtraction?.fields ?? {};
+    const conflicts = [];
+
+    if (current.itemPower && next.itemPower && current.itemPower !== next.itemPower) {
+        conflicts.push("item power");
+    }
+    if (
+        current.itemType && next.itemType &&
+        normalizedItemName(current.itemType) !== normalizedItemName(next.itemType)
+    ) {
+        conflicts.push("item type");
+    }
+
+    return { ok: conflicts.length === 0, conflicts };
+}
+
+function mergeContinuationExtraction(prefix, extraction, ocrConfidence) {
+    const current = getGear(prefix);
+    const currentExtraction = {
+        fields: current,
+        detected: [],
+        inferred: [],
+        rejected: [],
+        uncertain: [],
+        rawText: ""
+    };
+    const check = sameItemContinuationCheck(prefix, currentExtraction, extraction);
+    const ui = screenshotElements(prefix);
+
+    if (!check.ok) {
+        ui.readout.hidden = false;
+        ui.readoutText.textContent =
+            `Continuation mismatch: ${check.conflicts.join(", ")} conflicts with the current item. Darkstorm did not merge this screenshot.`;
+        prototypeState.screenshotIncomplete[prefix] = true;
+        updateContinuationUI(prefix);
+        return false;
+    }
+
+    const merged = mergeScreenshotExtractions(currentExtraction, extraction);
+    setGear(prefix, merged.fields);
+    prototypeState.screenshotItemTypes[prefix] =
+        merged.fields.itemType || prototypeState.screenshotItemTypes[prefix] || "";
+    prototypeState.itemConfirmed[prefix] = false;
+    prototypeState.screenshotIncomplete[prefix] = extractionShowsScroll(extraction) &&
+        /\bScroll\s+Down\b/i.test(extraction.rawText ?? "");
+
+    ui.readout.hidden = false;
+    ui.ocrText.textContent = [
+        ui.ocrText.textContent,
+        "",
+        "--- Continuation screenshot ---",
+        extraction.rawText || "No text detected."
+    ].join("\n");
+    ui.readoutText.textContent =
+        `Continuation merged. OCR text confidence: ${Math.round(ocrConfidence)}%. Review the combined item fields before confirming.`;
+
+    updateContinuationUI(prefix);
+    updateItemConfirmationUI(prefix);
+    updateGearSlotMismatchUI();
+    markUnsaved();
+    return true;
+}
+
+async function readContinuationScreenshot(prefix) {
+    const continuation = prototypeState.continuations[prefix];
+    const ui = screenshotElements(prefix);
+    if (!continuation?.file) return;
+
+    ui.continuationRead.disabled = true;
+    ui.continuationRead.textContent = "Reading continuation…";
+
+    try {
+        const result = await window.Tesseract.recognize(continuation.file, "eng");
+        const rawText = result?.data?.text ?? "";
+        let confidence = Number(result?.data?.confidence ?? 0);
+        let extraction = parseDiabloItemText(rawText, el.comparisonSlot.value);
+
+        if (shouldRunEnhancedRead(extraction)) {
+            try {
+                const enhancedSource = await createEnhancedOcrSource(continuation.file);
+                const enhancedResult = await window.Tesseract.recognize(enhancedSource, "eng");
+                const enhancedExtraction = parseDiabloItemText(
+                    enhancedResult?.data?.text ?? "",
+                    el.comparisonSlot.value
+                );
+                extraction = mergeScreenshotExtractions(extraction, enhancedExtraction);
+                confidence = Math.max(confidence, Number(enhancedResult?.data?.confidence ?? 0));
+            } catch (error) {
+                console.warn("Darkstorm enhanced continuation read failed:", error);
+            }
+        }
+
+        mergeContinuationExtraction(prefix, extraction, confidence);
+    } catch (error) {
+        console.error("Darkstorm continuation read failed:", error);
+        ui.readout.hidden = false;
+        ui.readoutText.textContent =
+            "Darkstorm could not read the continuation screenshot. Try a tighter crop or enter the remaining item data manually.";
+    } finally {
+        ui.continuationRead.textContent = "Read continuation";
+        ui.continuationRead.disabled = !prototypeState.continuations[prefix]?.file;
+    }
 }
 
 function formatScreenshotSize(bytes = 0) {
@@ -494,6 +670,7 @@ function renderItemScreenshot(prefix) {
 
 function clearItemScreenshot(prefix, { revoke = true } = {}) {
     const screenshot = prototypeState.screenshots[prefix];
+    clearContinuation(prefix);
 
     if (revoke && screenshot?.url) {
         URL.revokeObjectURL(screenshot.url);
@@ -708,6 +885,11 @@ function updateItemConfirmationUI(prefix) {
         button.textContent = prefix === "equipped"
             ? "Confirm Equipped Item Data"
             : "Confirm Candidate Item Data";
+    } else if (prototypeState.screenshotIncomplete[prefix]) {
+        panel.classList.add("needs-confirmation");
+        status.textContent = "Incomplete capture · continuation needed";
+        button.disabled = true;
+        button.textContent = "Add continuation before confirming";
     } else if (confirmed) {
         panel.classList.add("confirmed");
         status.textContent = "✓ Gamer confirmed";
@@ -2213,6 +2395,10 @@ async function readItemScreenshot(prefix) {
         }
 
         applyScreenshotExtraction(prefix, extraction, ocrConfidence);
+        prototypeState.screenshotIncomplete[prefix] =
+            /\bScroll\s+Down\b/i.test(extraction.rawText ?? "");
+        updateContinuationUI(prefix);
+        updateItemConfirmationUI(prefix);
         ui.status.textContent = enhancedUsed
             ? `OCR ${Math.round(ocrConfidence)}% · enhanced review`
             : `OCR ${Math.round(ocrConfidence)}% · review`;
@@ -2246,6 +2432,14 @@ function wireScreenshotIntake() {
 
         ui.remove.addEventListener("click", () => {
             clearItemScreenshot(prefix);
+        });
+
+        ui.continuationInput?.addEventListener("change", event => {
+            setContinuationScreenshot(prefix, event.target.files?.[0]);
+        });
+
+        ui.continuationRead?.addEventListener("click", () => {
+            readContinuationScreenshot(prefix);
         });
 
         ["dragenter", "dragover"].forEach(eventName => {
@@ -3129,6 +3323,10 @@ window.addEventListener("beforeunload", () => {
         const screenshot = prototypeState.screenshots[prefix];
         if (screenshot?.url) {
             URL.revokeObjectURL(screenshot.url);
+        }
+        const continuation = prototypeState.continuations[prefix];
+        if (continuation?.url) {
+            URL.revokeObjectURL(continuation.url);
         }
     });
 });
