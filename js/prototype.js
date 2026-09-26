@@ -136,10 +136,15 @@ function renderEquipmentLoadout() {
                     <span id="loadoutHelmScreenshotStatus" class="status-pill compact">Temporary</span>
                 </div>
                 <p class="muted">Scan the equipped helm here. Darkstorm uses the same item reader as Comparison, but keeps the review inside Equipment.</p>
+                <div class="screenshot-preview">
+                    <img id="loadoutHelmScreenshotPreview" alt="Helm item screenshot preview" hidden>
+                    <p id="loadoutHelmScreenshotEmpty" class="muted">No screenshot selected.</p>
+                </div>
                 <div class="screenshot-actions">
                     <label class="button secondary" for="loadoutHelmScreenshotInput">Choose Screenshot</label>
                     <input id="loadoutHelmScreenshotInput" type="file" accept="image/*" hidden>
                     <button id="loadoutHelmScreenshotRead" type="button" disabled>Read Helm Screenshot</button>
+                    <button id="loadoutHelmScreenshotRemove" type="button" class="secondary" hidden>Remove</button>
                     <button id="loadoutHelmConfirm" type="button" hidden>Confirm Helm Data</button>
                 </div>
                 <div id="loadoutHelmReadout" class="screenshot-readout" hidden>
@@ -204,10 +209,13 @@ function wireLoadoutHelmScreenshotIntake() {
     const input = document.getElementById("loadoutHelmScreenshotInput");
     const read = document.getElementById("loadoutHelmScreenshotRead");
     const confirm = document.getElementById("loadoutHelmConfirm");
+    const remove = document.getElementById("loadoutHelmScreenshotRemove");
+    const preview = document.getElementById("loadoutHelmScreenshotPreview");
+    const empty = document.getElementById("loadoutHelmScreenshotEmpty");
     const status = document.getElementById("loadoutHelmScreenshotStatus");
     const readout = document.getElementById("loadoutHelmReadout");
     const readoutText = document.getElementById("loadoutHelmReadoutText");
-    if (!input || !read || !confirm || !status || !readout || !readoutText) return;
+    if (!input || !read || !confirm || !remove || !preview || !empty || !status || !readout || !readoutText) return;
 
     input.addEventListener("change", event => {
         const file = event.target.files?.[0];
@@ -217,10 +225,35 @@ function wireLoadoutHelmScreenshotIntake() {
             input.value = "";
             return;
         }
+        if (prototypeState.loadoutHelmScreenshotUrl) {
+            URL.revokeObjectURL(prototypeState.loadoutHelmScreenshotUrl);
+        }
         prototypeState.loadoutHelmScreenshot = file;
+        prototypeState.loadoutHelmScreenshotUrl = URL.createObjectURL(file);
+        preview.src = prototypeState.loadoutHelmScreenshotUrl;
+        preview.hidden = false;
+        empty.hidden = true;
+        remove.hidden = false;
         status.textContent = `${file.name || "Helm screenshot"} · ${formatScreenshotSize(file.size || 0)}`;
         read.disabled = false;
         confirm.hidden = true;
+        readout.hidden = true;
+    });
+
+    remove.addEventListener("click", () => {
+        if (prototypeState.loadoutHelmScreenshotUrl) {
+            URL.revokeObjectURL(prototypeState.loadoutHelmScreenshotUrl);
+        }
+        prototypeState.loadoutHelmScreenshot = null;
+        prototypeState.loadoutHelmScreenshotUrl = "";
+        input.value = "";
+        preview.removeAttribute("src");
+        preview.hidden = true;
+        empty.hidden = false;
+        remove.hidden = true;
+        read.disabled = true;
+        confirm.hidden = true;
+        status.textContent = "Temporary";
         readout.hidden = true;
     });
 
