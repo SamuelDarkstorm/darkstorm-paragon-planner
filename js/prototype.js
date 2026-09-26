@@ -1541,11 +1541,28 @@ function parseItemName(lines, rarityIndex) {
 
 function normalizeIdentityOcr(value) {
     return String(value ?? "")
-        .replace(/[®©]/g, "O")
-        .replace(/[Ø@]/g, "O")
+        .replace(/[®©Ø@]/g, "O")
         .replace(/[–—]/g, "-")
         .replace(/\s+/g, " ")
         .trim();
+}
+
+function cleanDiabloTitleLine(value) {
+    let line = normalizeIdentityOcr(value)
+        .replace(/^[^A-Za-z]+/, "")
+        .replace(/[^A-Za-z]+$/g, "")
+        .trim();
+
+    // OCR border fragments can attach one stray letter to an otherwise
+    // all-caps title line: "FBRISTLEBACK" / "GREATSWORD J".
+    const words = line.split(/\s+/).filter(Boolean)
+        .filter(word => word.length > 1 || /^(?:A|I)$/i.test(word));
+    line = words.join(" ");
+
+    if (/^[A-Z]{8,}$/.test(line) && /^F[A-Z]{7,}$/.test(line)) {
+        line = line.slice(1);
+    }
+    return line;
 }
 
 function recoverHeaderIdentityNearItemPower(lines) {
@@ -1563,8 +1580,14 @@ function recoverHeaderIdentityNearItemPower(lines) {
     // Type may wrap: "Legendary Two-Handed /" then "Sword".
     const typeWindow = header.slice(rarityLocal, Math.min(header.length, rarityLocal + 3))
         .join(" ")
-        .replace(/[|/\\]+/g, " ");
-    const itemType = exactItemTypeFromText(typeWindow);
+        .replace(/[|/\\]+/g, " ")
+        .replace(/[^A-Za-z -]+/g, " ")
+        .replace(/\s+/g, " ");
+    let itemType = exactItemTypeFromText(typeWindow);
+    if (/two\s*-?\s*handed/i.test(typeWindow)) {
+        const weapon = typeWindow.match(/\b(sword|axe|mace|scythe)\b/i)?.[1];
+        if (weapon) itemType = `Two-Handed ${weapon[0].toUpperCase() + weapon.slice(1).toLowerCase()}`;
+    }
 
     // Walk upward from rarity, collecting title-like lines. Skip pure border/UI
     // noise but stop before EQUIPPED / Item Selected. Strip border punctuation
@@ -1573,11 +1596,7 @@ function recoverHeaderIdentityNearItemPower(lines) {
     for (let i = rarityLocal - 1; i >= 0 && title.length < 4; i -= 1) {
         let line = header[i];
         if (/\b(?:equipped|item selected|two-handed.*selected)\b/i.test(line)) break;
-        line = line
-            .replace(/^[^A-Za-z]+/, "")
-            .replace(/[^A-Za-z'’& -]+$/g, "")
-            .replace(/\s+/g, " ")
-            .trim();
+        line = cleanDiabloTitleLine(line);
         if (!line) continue;
         if (/\b(?:equipped|character|inventory|compare)\b/i.test(line)) break;
         const words = line.match(/[A-Za-z][A-Za-z'’&-]*/g) ?? [];
@@ -2194,6 +2213,8 @@ function cleanPowerText(value) {
         .replace(/\|?\s*\[x\]\s*/gi, " ")
         .replace(/[|¦]+/g, " ")
         .replace(/(^|\s)[{}§]+(?=\s|$)/g, " ")
+        .replace(/(^|\s)[<>{}]+(?=\s|$)/g, " ")
+        .replace(/\{[Il1]\s+/g, " ")
         .replace(/\s+([,.;:])/g, "$1")
         .replace(/\s{2,}/g, " ")
         .trim();
@@ -2470,7 +2491,15 @@ function parseDiabloItemText(rawText, slotKey) {
             blockLines.join(" ").replace(/^.*?\b(?:imprinted|aspect)\b\s*:?\s*/i, "")
         );
         if (powerLooksUsable(text) || text.length >= 30) {
-            const range = decimalRangeFromLine(text);
+            let range = decimalRangeFromLine(text);
+            if (!range) {
+                const looseRange = text.match(/[\[({<]?\s*([0-9OIlS,.]+(?:\.[0-9]+)?)\s*[-–—]\s*([0-9OIlS,.]+(?:\.[0-9]+)?)\s*[\])}>]?\s*%/i);
+                if (looseRange) {
+                    const low = decimalFromOcr(looseRange[1]);
+                    const high = decimalFromOcr(looseRange[2]);
+                    if (low > 0 && high >= low) range = { low, high };
+                }
+            }
             const percents = [...text.matchAll(/([0-9OIlS,.]+(?:\.[0-9]+)?)\s*%/gi)]
                 .map(match => decimalFromOcr(match[1]))
                 .filter(value => Number.isFinite(value) && value > 0);
