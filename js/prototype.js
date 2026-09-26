@@ -182,8 +182,19 @@ function renderEquipmentLoadout() {
             if (field.max !== undefined) input.max = field.max;
 
             input.addEventListener("input", () => {
+                if (prototypeState.loadoutExtractions[slot.key]) {
+                    prototypeState.loadoutVerified[slot.key] = false;
+                    const confirm = document.getElementById("loadout-" + slot.key + "-confirm");
+                    const status = document.getElementById("loadout-" + slot.key + "-screenshot-status");
+                    if (confirm) {
+                        confirm.hidden = false;
+                        confirm.textContent = "Confirm " + slot.label + " Data";
+                    }
+                    if (status) status.textContent = "Edited · confirm again";
+                }
                 updateLoadoutSummary(slot.key);
                 updateLoadoutStatus();
+                markUnsaved();
             });
 
             label.append(input);
