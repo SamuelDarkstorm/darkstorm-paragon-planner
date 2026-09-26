@@ -34,7 +34,8 @@ const prototypeState = {
     },
     loadoutScreenshots: {},
     loadoutScreenshotUrls: {},
-    loadoutExtractions: {}
+    loadoutExtractions: {},
+    loadoutVerified: {}
 };
 
 const EQUIPMENT_SLOTS = [
@@ -245,6 +246,8 @@ function wireLoadoutScreenshotIntake(slot) {
         read.disabled = false;
         confirm.hidden = true;
         readout.hidden = true;
+        prototypeState.loadoutVerified[slotKey] = false;
+        updateLoadoutIntelligence();
     });
 
     remove.addEventListener("click", () => {
@@ -253,6 +256,7 @@ function wireLoadoutScreenshotIntake(slot) {
         delete prototypeState.loadoutScreenshots[slotKey];
         delete prototypeState.loadoutScreenshotUrls[slotKey];
         delete prototypeState.loadoutExtractions[slotKey];
+        delete prototypeState.loadoutVerified[slotKey];
         input.value = "";
         preview.removeAttribute("src");
         preview.hidden = true;
@@ -318,6 +322,7 @@ function wireLoadoutScreenshotIntake(slot) {
 
             applyExtractionToLoadout(slotKey, extraction);
             prototypeState.loadoutExtractions[slotKey] = extraction;
+            prototypeState.loadoutVerified[slotKey] = false;
 
             readout.hidden = false;
             readoutText.textContent =
@@ -338,6 +343,7 @@ function wireLoadoutScreenshotIntake(slot) {
     });
 
     confirm.addEventListener("click", () => {
+        prototypeState.loadoutVerified[slotKey] = true;
         updateLoadoutSummary(slotKey);
         updateLoadoutStatus();
         status.textContent = `Verified · saved to ${slot.label}`;
@@ -345,6 +351,7 @@ function wireLoadoutScreenshotIntake(slot) {
             `${slot.label} verified. You can close this slot; its data stays in the character loadout.`;
         confirm.hidden = true;
         markUnsaved();
+        analyzeBuild();
     });
 }
 
@@ -449,6 +456,22 @@ function loadoutIntelligenceFor(character) {
             whyNot: "Darkstorm will not invent missing equipment.",
             changes: "Scan or enter an equipped item and confirm its data.",
             confidence: null
+        };
+    }
+
+    const screenshotDrafts = filled.filter(({ slot }) =>
+        prototypeState.loadoutExtractions[slot.key] && !prototypeState.loadoutVerified[slot.key]
+    );
+    if (screenshotDrafts.length) {
+        const labels = screenshotDrafts.map(({ slot }) => slot.label).join(", ");
+        return {
+            title: "Verify scanned equipment before optimizing.",
+            summary: "OCR draft data is still awaiting gamer confirmation in: " + labels + ".",
+            why: "Darkstorm treats OCR as intake assistance, not trusted character truth.",
+            whyNow: "Gear intelligence should only act on screenshot-derived values after the player has reviewed them.",
+            whyNot: "Using an unconfirmed OCR value could create a confident recommendation from a bad read.",
+            changes: "Review and confirm the listed equipment slot" + (screenshotDrafts.length === 1 ? "" : "s") + ".",
+            confidence: 96
         };
     }
 
@@ -3952,6 +3975,25 @@ function recommendationFor(character) {
             whyNot: "Changing skills at the same time would make the result harder to interpret.",
             changes: "If the candidate feels worse in play, revert it regardless of the prototype score.",
             confidence: 82
+        };
+    }
+
+    const loadoutDecision = loadoutIntelligenceFor(character);
+    const loadoutHasConcreteAction =
+        loadoutDecision.confidence != null &&
+        !loadoutDecision.title.startsWith("Keep the current recorded gear stable") &&
+        !loadoutDecision.title.startsWith("Add equipped gear") &&
+        !loadoutDecision.title.startsWith("Verify scanned equipment");
+
+    if (loadoutHasConcreteAction) {
+        return {
+            title: loadoutDecision.title,
+            summary: loadoutDecision.summary,
+            why: loadoutDecision.why,
+            whyNow: loadoutDecision.whyNow,
+            whyNot: loadoutDecision.whyNot,
+            changes: loadoutDecision.changes,
+            confidence: Math.min(loadoutDecision.confidence, 84)
         };
     }
 
