@@ -31,7 +31,8 @@ const prototypeState = {
     baseScreenshotExtractions: {
         equipped: null,
         candidate: null
-    }
+    },
+    loadoutHelmScreenshot: null
 };
 
 const EQUIPMENT_SLOTS = [
@@ -124,6 +125,24 @@ function renderEquipmentLoadout() {
         const fields = document.createElement("div");
         fields.className = "equipment-slot-fields";
 
+        if (slot.key === "helm") {
+            const intake = document.createElement("div");
+            intake.className = "screenshot-intake wide";
+            intake.innerHTML = `
+                <div class="screenshot-heading">
+                    <strong>Helm Screenshot</strong>
+                    <span id="loadoutHelmScreenshotStatus" class="status-pill compact">Temporary</span>
+                </div>
+                <p class="muted">Prototype test: scan a helm with the same reader used by Gear Comparison. Darkstorm will load the OCR draft into Comparison for gamer verification before saving it here.</p>
+                <div class="screenshot-actions">
+                    <label class="button secondary" for="loadoutHelmScreenshotInput">Choose Screenshot</label>
+                    <input id="loadoutHelmScreenshotInput" type="file" accept="image/*" hidden>
+                    <button id="loadoutHelmScreenshotRead" type="button" disabled>Read Helm Screenshot</button>
+                </div>
+            `;
+            fields.append(intake);
+        }
+
         LOADOUT_FIELDS.forEach(field => {
             const label = document.createElement("label");
             if (field.wide) label.classList.add("wide");
@@ -160,6 +179,66 @@ function renderEquipmentLoadout() {
     });
 
     updateLoadoutStatus();
+}
+
+function wireLoadoutHelmScreenshotIntake() {
+    const input = document.getElementById("loadoutHelmScreenshotInput");
+    const read = document.getElementById("loadoutHelmScreenshotRead");
+    const status = document.getElementById("loadoutHelmScreenshotStatus");
+    if (!input || !read || !status) return;
+
+    input.addEventListener("change", event => {
+        const file = event.target.files?.[0];
+        if (!file) return;
+        if (file.type && !file.type.startsWith("image/")) {
+            window.alert("Please choose an image file for the helm screenshot.");
+            input.value = "";
+            return;
+        }
+        prototypeState.loadoutHelmScreenshot = file;
+        status.textContent = `${file.name || "Helm screenshot"} · ${formatScreenshotSize(file.size || 0)}`;
+        read.disabled = false;
+    });
+
+    read.addEventListener("click", async () => {
+        const file = prototypeState.loadoutHelmScreenshot;
+        if (!file) return;
+
+        // The comparison workspace is intentionally the verification surface.
+        // This keeps free-form item-vs-item comparison intact and avoids a
+        // second OCR/confirmation implementation inside Equipment.
+        el.comparisonSlot.value = "helm";
+        setItemScreenshot("equipped", file);
+        read.disabled = true;
+        status.textContent = "Reading in Comparison…";
+
+        await readItemScreenshot("equipped");
+
+        const extracted = getGear("equipped");
+        const hasUsefulData = extracted.itemType || extracted.itemPower ||
+            extracted.baseArmor || extracted.affixDetails.length || extracted.power;
+
+        if (hasUsefulData) {
+            status.textContent = "OCR draft ready · verify below";
+            document.getElementById("gear")?.scrollIntoView({ behavior: "smooth", block: "start" });
+        } else {
+            status.textContent = "Needs manual review";
+        }
+        read.disabled = false;
+    });
+}
+
+function saveVerifiedEquippedToLoadout() {
+    if (!prototypeState.itemConfirmed.equipped) return;
+    const slotKey = el.comparisonSlot.value;
+    const item = getGear("equipped");
+    setLoadoutItem(slotKey, item);
+    markUnsaved();
+
+    if (slotKey === "helm") {
+        const status = document.getElementById("loadoutHelmScreenshotStatus");
+        if (status) status.textContent = "Verified · saved to Helm";
+    }
 }
 
 function getLoadoutItem(slotKey) {
@@ -1045,6 +1124,9 @@ function confirmItemData(prefix) {
     }
 
     prototypeState.itemConfirmed[prefix] = true;
+    if (prefix === "equipped") {
+        saveVerifiedEquippedToLoadout();
+    }
     prototypeState.lastGearComparison = null;
     prototypeState.candidateEquipped = false;
     resetGearVerdict();
@@ -3484,6 +3566,7 @@ function resetPrototype() {
 }
 
 renderEquipmentLoadout();
+wireLoadoutHelmScreenshotIntake();
 renderGearAffixRows();
 wireScreenshotIntake();
 updateAllItemConfirmationUI();
