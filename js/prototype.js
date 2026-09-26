@@ -32,7 +32,9 @@ const prototypeState = {
         equipped: null,
         candidate: null
     },
-    loadoutHelmScreenshot: null
+    loadoutScreenshots: {},
+    loadoutScreenshotUrls: {},
+    loadoutExtractions: {}
 };
 
 const EQUIPMENT_SLOTS = [
@@ -127,32 +129,31 @@ function renderEquipmentLoadout() {
         const fields = document.createElement("div");
         fields.className = "equipment-slot-fields";
 
-        if (slot.key === "helm") {
-            const intake = document.createElement("div");
-            intake.className = "screenshot-intake wide";
-            intake.innerHTML = `
-                <div class="screenshot-heading">
-                    <strong>Helm Screenshot</strong>
-                    <span id="loadoutHelmScreenshotStatus" class="status-pill compact">Temporary</span>
-                </div>
-                <p class="muted">Scan the equipped helm here. Darkstorm uses the same item reader as Comparison, but keeps the review inside Equipment.</p>
-                <div class="screenshot-preview">
-                    <img id="loadoutHelmScreenshotPreview" alt="Helm item screenshot preview" hidden>
-                    <p id="loadoutHelmScreenshotEmpty" class="muted">No screenshot selected.</p>
-                </div>
-                <div class="screenshot-actions">
-                    <label class="button secondary" for="loadoutHelmScreenshotInput">Choose Screenshot</label>
-                    <input id="loadoutHelmScreenshotInput" type="file" accept="image/*" hidden>
-                    <button id="loadoutHelmScreenshotRead" type="button" disabled>Read Helm Screenshot</button>
-                    <button id="loadoutHelmScreenshotRemove" type="button" class="secondary" hidden>Remove</button>
-                    <button id="loadoutHelmConfirm" type="button" hidden>Confirm Helm Data</button>
-                </div>
-                <div id="loadoutHelmReadout" class="screenshot-readout" hidden>
-                    <p id="loadoutHelmReadoutText" class="muted"></p>
-                </div>
-            `;
-            fields.append(intake);
-        }
+        const intake = document.createElement("div");
+        intake.className = "screenshot-intake wide";
+        const slotId = slot.key;
+        intake.innerHTML = `
+            <div class="screenshot-heading">
+                <strong>${slot.label} Screenshot</strong>
+                <span id="loadout-${slotId}-screenshot-status" class="status-pill compact">Temporary</span>
+            </div>
+            <p class="muted">Scan the equipped ${slot.label.toLowerCase()} here. Darkstorm keeps screenshot review inside Equipment.</p>
+            <div class="screenshot-preview">
+                <img id="loadout-${slotId}-screenshot-preview" alt="${slot.label} item screenshot preview" hidden>
+                <p id="loadout-${slotId}-screenshot-empty" class="muted">No screenshot selected.</p>
+            </div>
+            <div class="screenshot-actions">
+                <label class="button secondary" for="loadout-${slotId}-screenshot-input">Choose Screenshot</label>
+                <input id="loadout-${slotId}-screenshot-input" type="file" accept="image/*" hidden>
+                <button id="loadout-${slotId}-screenshot-read" type="button" disabled>Read ${slot.label} Screenshot</button>
+                <button id="loadout-${slotId}-screenshot-remove" type="button" class="secondary" hidden>Remove</button>
+                <button id="loadout-${slotId}-confirm" type="button" hidden>Confirm ${slot.label} Data</button>
+            </div>
+            <div id="loadout-${slotId}-readout" class="screenshot-readout" hidden>
+                <p id="loadout-${slotId}-readout-text" class="muted"></p>
+            </div>
+        `;
+        fields.append(intake);
 
         LOADOUT_FIELDS.forEach(field => {
             const label = document.createElement("label");
@@ -208,47 +209,50 @@ function applyExtractionToLoadout(slotKey, extraction) {
     return item;
 }
 
-function wireLoadoutHelmScreenshotIntake() {
-    const input = document.getElementById("loadoutHelmScreenshotInput");
-    const read = document.getElementById("loadoutHelmScreenshotRead");
-    const confirm = document.getElementById("loadoutHelmConfirm");
-    const remove = document.getElementById("loadoutHelmScreenshotRemove");
-    const preview = document.getElementById("loadoutHelmScreenshotPreview");
-    const empty = document.getElementById("loadoutHelmScreenshotEmpty");
-    const status = document.getElementById("loadoutHelmScreenshotStatus");
-    const readout = document.getElementById("loadoutHelmReadout");
-    const readoutText = document.getElementById("loadoutHelmReadoutText");
+function wireLoadoutScreenshotIntake(slot) {
+    const slotKey = slot.key;
+    const input = document.getElementById(`loadout-${slotKey}-screenshot-input`);
+    const read = document.getElementById(`loadout-${slotKey}-screenshot-read`);
+    const confirm = document.getElementById(`loadout-${slotKey}-confirm`);
+    const remove = document.getElementById(`loadout-${slotKey}-screenshot-remove`);
+    const preview = document.getElementById(`loadout-${slotKey}-screenshot-preview`);
+    const empty = document.getElementById(`loadout-${slotKey}-screenshot-empty`);
+    const status = document.getElementById(`loadout-${slotKey}-screenshot-status`);
+    const readout = document.getElementById(`loadout-${slotKey}-readout`);
+    const readoutText = document.getElementById(`loadout-${slotKey}-readout-text`);
     if (!input || !read || !confirm || !remove || !preview || !empty || !status || !readout || !readoutText) return;
 
     input.addEventListener("change", event => {
         const file = event.target.files?.[0];
         if (!file) return;
         if (file.type && !file.type.startsWith("image/")) {
-            window.alert("Please choose an image file for the helm screenshot.");
+            window.alert(`Please choose an image file for the ${slot.label.toLowerCase()} screenshot.`);
             input.value = "";
             return;
         }
-        if (prototypeState.loadoutHelmScreenshotUrl) {
-            URL.revokeObjectURL(prototypeState.loadoutHelmScreenshotUrl);
-        }
-        prototypeState.loadoutHelmScreenshot = file;
-        prototypeState.loadoutHelmScreenshotUrl = URL.createObjectURL(file);
-        preview.src = prototypeState.loadoutHelmScreenshotUrl;
+
+        const oldUrl = prototypeState.loadoutScreenshotUrls[slotKey];
+        if (oldUrl) URL.revokeObjectURL(oldUrl);
+
+        const url = URL.createObjectURL(file);
+        prototypeState.loadoutScreenshots[slotKey] = file;
+        prototypeState.loadoutScreenshotUrls[slotKey] = url;
+        preview.src = url;
         preview.hidden = false;
         empty.hidden = true;
         remove.hidden = false;
-        status.textContent = `${file.name || "Helm screenshot"} · ${formatScreenshotSize(file.size || 0)}`;
+        status.textContent = `${file.name || slot.label + " screenshot"} · ${formatScreenshotSize(file.size || 0)}`;
         read.disabled = false;
         confirm.hidden = true;
         readout.hidden = true;
     });
 
     remove.addEventListener("click", () => {
-        if (prototypeState.loadoutHelmScreenshotUrl) {
-            URL.revokeObjectURL(prototypeState.loadoutHelmScreenshotUrl);
-        }
-        prototypeState.loadoutHelmScreenshot = null;
-        prototypeState.loadoutHelmScreenshotUrl = "";
+        const url = prototypeState.loadoutScreenshotUrls[slotKey];
+        if (url) URL.revokeObjectURL(url);
+        delete prototypeState.loadoutScreenshots[slotKey];
+        delete prototypeState.loadoutScreenshotUrls[slotKey];
+        delete prototypeState.loadoutExtractions[slotKey];
         input.value = "";
         preview.removeAttribute("src");
         preview.hidden = true;
@@ -261,7 +265,7 @@ function wireLoadoutHelmScreenshotIntake() {
     });
 
     read.addEventListener("click", async () => {
-        const file = prototypeState.loadoutHelmScreenshot;
+        const file = prototypeState.loadoutScreenshots[slotKey];
         if (!file) return;
         if (!window.Tesseract?.recognize) {
             readout.hidden = false;
@@ -283,7 +287,7 @@ function wireLoadoutHelmScreenshotIntake() {
             });
 
             let confidence = Number(result?.data?.confidence ?? 0);
-            let extraction = parseDiabloItemText(result?.data?.text ?? "", "helm");
+            let extraction = parseDiabloItemText(result?.data?.text ?? "", slotKey);
             let enhancedUsed = false;
 
             if (shouldRunEnhancedRead(extraction)) {
@@ -293,7 +297,7 @@ function wireLoadoutHelmScreenshotIntake() {
                     const enhancedResult = await window.Tesseract.recognize(enhancedSource, "eng");
                     extraction = mergeScreenshotExtractions(
                         extraction,
-                        parseDiabloItemText(enhancedResult?.data?.text ?? "", "helm")
+                        parseDiabloItemText(enhancedResult?.data?.text ?? "", slotKey)
                     );
                     confidence = Math.max(confidence, Number(enhancedResult?.data?.confidence ?? 0));
                     enhancedUsed = true;
@@ -305,25 +309,25 @@ function wireLoadoutHelmScreenshotIntake() {
             if ((extraction.detected ?? []).length < 2) {
                 readout.hidden = false;
                 readoutText.textContent =
-                    "Darkstorm could not confidently map enough helm data. The existing Helm fields were left unchanged.";
+                    `Darkstorm could not confidently map enough ${slot.label.toLowerCase()} data. Existing fields were left unchanged.`;
                 status.textContent = "Needs manual review";
                 return;
             }
 
-            applyExtractionToLoadout("helm", extraction);
-            prototypeState.loadoutHelmExtraction = extraction;
+            applyExtractionToLoadout(slotKey, extraction);
+            prototypeState.loadoutExtractions[slotKey] = extraction;
             readout.hidden = false;
             readoutText.textContent =
-                `OCR draft loaded into Helm (${Math.round(confidence)}% text confidence). Review the fields below, correct anything needed, then confirm.`;
+                `OCR draft loaded into ${slot.label} (${Math.round(confidence)}% text confidence). Review the fields below, correct anything needed, then confirm.`;
             status.textContent = enhancedUsed ? "OCR draft · enhanced review" : "OCR draft · review";
             confirm.hidden = false;
-            confirm.textContent = "Confirm Helm Data";
+            confirm.textContent = `Confirm ${slot.label} Data`;
             markUnsaved();
         } catch (error) {
             console.error("Darkstorm Equipment screenshot read failed:", error);
             readout.hidden = false;
             readoutText.textContent =
-                "Darkstorm could not read this helm screenshot. Try a tighter crop or enter the item manually.";
+                `Darkstorm could not read this ${slot.label.toLowerCase()} screenshot. Try a tighter crop or enter the item manually.`;
             status.textContent = "Read failed";
         } finally {
             read.disabled = false;
@@ -331,15 +335,18 @@ function wireLoadoutHelmScreenshotIntake() {
     });
 
     confirm.addEventListener("click", () => {
-        // The gamer-reviewed form is the trust boundary. Closing the details
-        // card only changes presentation; these fields remain in the loadout.
-        updateLoadoutSummary("helm");
+        updateLoadoutSummary(slotKey);
         updateLoadoutStatus();
-        status.textContent = "Verified · saved to Helm";
-        readoutText.textContent = "Helm verified. You can close this slot; its data stays in the character loadout.";
+        status.textContent = `Verified · saved to ${slot.label}`;
+        readoutText.textContent =
+            `${slot.label} verified. You can close this slot; its data stays in the character loadout.`;
         confirm.hidden = true;
         markUnsaved();
     });
+}
+
+function wireLoadoutScreenshotIntakes() {
+    EQUIPMENT_SLOTS.forEach(wireLoadoutScreenshotIntake);
 }
 
 function getLoadoutItem(slotKey) {
@@ -3664,7 +3671,7 @@ function resetPrototype() {
 }
 
 renderEquipmentLoadout();
-wireLoadoutHelmScreenshotIntake();
+wireLoadoutScreenshotIntakes();
 renderGearAffixRows();
 wireScreenshotIntake();
 updateAllItemConfirmationUI();
@@ -3767,6 +3774,9 @@ document.querySelectorAll('input:not([type="file"]), select, textarea').forEach(
 });
 
 window.addEventListener("beforeunload", () => {
+    Object.values(prototypeState.loadoutScreenshotUrls).forEach(url => {
+        if (url) URL.revokeObjectURL(url);
+    });
     SCREENSHOT_PREFIXES.forEach(prefix => {
         const screenshot = prototypeState.screenshots[prefix];
         if (screenshot?.url) {
