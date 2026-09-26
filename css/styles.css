@@ -698,3 +698,11 @@ footer {
 .affix-row input {
     min-width: 0;
 }
+.darkstorm-logo {
+  display: block;
+  width: 280px;
+  max-width: 100%;
+  height: auto;
+  margin: 8px 0 10px;
+  border-radius: 8px;
+}
