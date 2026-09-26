@@ -389,23 +389,38 @@ function setLoadout(loadout = {}) {
     });
 }
 
+function loadoutItemHasData(slotKey) {
+    const item = getLoadoutItem(slotKey);
+    return Boolean(
+        item.name || item.rarity || item.itemType || item.itemPower ||
+        item.armor || item.life || item.defense || item.damage ||
+        item.requiredLevel || item.power || item.affixes || item.tempers ||
+        item.masterwork || item.sockets || item.socketContents
+    );
+}
+
 function updateLoadoutSummary(slotKey) {
     const summary = document.getElementById(`loadout-${slotKey}-summary`);
-    const nameInput = document.getElementById(loadoutFieldId(slotKey, "name"));
-    if (!summary || !nameInput) return;
+    if (!summary) return;
 
-    summary.textContent = nameInput.value.trim() || "Empty";
+    const item = getLoadoutItem(slotKey);
+    if (!loadoutItemHasData(slotKey)) {
+        summary.textContent = "Empty";
+        return;
+    }
+
+    // Item names are deliberately optional because OCR should not invent them.
+    // Give a useful collapsed summary from trusted structured fields instead.
+    const identity = item.name || [item.rarity, item.itemType].filter(Boolean).join(" ") || "Item";
+    const power = item.itemPower ? ` · ${item.itemPower}` : "";
+    summary.textContent = `${identity}${power}`;
 }
 
 function updateLoadoutStatus() {
     const status = document.getElementById("loadoutStatus");
     if (!status) return;
 
-    const filled = EQUIPMENT_SLOTS.filter(slot => {
-        const input = document.getElementById(loadoutFieldId(slot.key, "name"));
-        return input?.value.trim();
-    }).length;
-
+    const filled = EQUIPMENT_SLOTS.filter(slot => loadoutItemHasData(slot.key)).length;
     status.textContent = `${filled} / ${EQUIPMENT_SLOTS.length} slots filled`;
 }
 
