@@ -425,6 +425,114 @@ function updateLoadoutStatus() {
 
     const filled = EQUIPMENT_SLOTS.filter(slot => loadoutItemHasData(slot.key)).length;
     status.textContent = `${filled} / ${EQUIPMENT_SLOTS.length} slots filled`;
+    updateLoadoutIntelligence();
+}
+
+function parseTemperUsage(value) {
+    const match = String(value ?? "").match(/(\d+)\s*\/\s*(\d+)/);
+    if (!match) return null;
+    return { used: Number(match[1]), total: Number(match[2]) };
+}
+
+function loadoutIntelligenceFor(character) {
+    const loadout = character.gear?.loadout ?? {};
+    const filled = EQUIPMENT_SLOTS
+        .map(slot => ({ slot, item: loadout[slot.key] ?? emptyLoadoutItem() }))
+        .filter(({ item }) => item.name || item.rarity || item.itemType || item.itemPower || item.power || item.affixes);
+
+    if (!filled.length) {
+        return {
+            title: "Add equipped gear to begin.",
+            summary: "Darkstorm needs at least one equipped item before it can reason about the loadout.",
+            why: "There is no verified equipment evidence yet.",
+            whyNow: "Loadout intelligence should be grounded in the character's actual gear.",
+            whyNot: "Darkstorm will not invent missing equipment.",
+            changes: "Scan or enter an equipped item and confirm its data.",
+            confidence: null
+        };
+    }
+
+    const level = Number(character.profile?.level ?? 0);
+    const goal = character.profile?.goal ?? "balanced";
+    const actionable = [];
+
+    filled.forEach(({ slot, item }) => {
+        const temper = parseTemperUsage(item.tempers);
+        if (temper && temper.used < temper.total) {
+            const remaining = temper.total - temper.used;
+            actionable.push({ priority: 100, slot, item,
+                reason: remaining + " temper attempt" + (remaining === 1 ? "" : "s") + " still available",
+                action: "Review the remaining temper opportunity on " + slot.label + "." });
+        }
+        if (item.sockets > 0 && !String(item.socketContents ?? "").trim()) {
+            actionable.push({ priority: 92, slot, item,
+                reason: item.sockets + " socket" + (item.sockets === 1 ? "" : "s") + " recorded without socket contents",
+                action: "Fill or verify the socket" + (item.sockets === 1 ? "" : "s") + " on " + slot.label + "." });
+        }
+        if (level >= 70 && item.itemPower > 0 && item.itemPower < 700) {
+            actionable.push({ priority: 78, slot, item,
+                reason: "item power " + item.itemPower + " is notably below the likely upgrade space for an endgame-level character",
+                action: "Look for a replacement " + slot.label.toLowerCase() + " before spending heavily on this item." });
+        }
+        if (item.power && item.powerValue && item.powerMin && item.powerMax) {
+            const value = Number(String(item.powerValue).replace(/[^0-9.]/g, ""));
+            const low = Number(String(item.powerMin).replace(/[^0-9.]/g, ""));
+            const high = Number(String(item.powerMax).replace(/[^0-9.]/g, ""));
+            if (Number.isFinite(value) && Number.isFinite(low) && Number.isFinite(high) && high > low &&
+                (value - low) / (high - low) < 0.25) {
+                actionable.push({ priority: 62, slot, item,
+                    reason: "its visible power roll is near the low end of the shown range",
+                    action: "Keep " + slot.label + " in the upgrade watchlist rather than treating the current power roll as settled." });
+            }
+        }
+    });
+
+    const chosen = actionable.sort((a, b) => b.priority - a.priority)[0];
+    const coverage = filled.length;
+    const confidence = Math.min(88, 46 + coverage * 4);
+
+    if (chosen) {
+        const itemName = chosen.item.name || [chosen.item.rarity, chosen.item.itemType].filter(Boolean).join(" ") || chosen.slot.label;
+        return {
+            title: chosen.action,
+            summary: itemName + ": " + chosen.reason + ".",
+            why: "This is a concrete loadout issue Darkstorm can see directly in the recorded equipment data.",
+            whyNow: "It is a controlled gear action that can be addressed without changing skills, Paragon, and multiple items at once.",
+            whyNot: "Darkstorm is not claiming this is the mathematically best possible item; the prototype does not yet have authoritative build-specific damage simulation.",
+            changes: "A stronger verified replacement, completed temper/socket state, or player test result can change this priority.",
+            confidence
+        };
+    }
+
+    const identity = buildIdentityFor(character);
+    return {
+        title: "Keep the current recorded gear stable and fill the remaining loadout.",
+        summary: coverage + " of " + EQUIPMENT_SLOTS.length + " equipment slots contain data. No obvious low-risk gear action is visible yet.",
+        why: "The recorded items do not expose an unfinished temper, empty recorded socket, clearly low item-power outlier, or bottom-quartile visible power roll.",
+        whyNow: "More complete loadout coverage gives Darkstorm better evidence before it recommends replacing a functioning item.",
+        whyNot: "A generic score alone is not enough to justify a swap, especially for " + identity.label.toLowerCase() + " and the current " + goal + " goal.",
+        changes: "Add and verify more equipped slots, compare a real candidate, or record a play-test result.",
+        confidence
+    };
+}
+
+function updateLoadoutIntelligence(character = getCharacterFromForm()) {
+    const result = loadoutIntelligenceFor(character);
+    const fields = {
+        loadoutIntelligenceTitle: result.title,
+        loadoutIntelligenceSummary: result.summary,
+        loadoutIntelligenceWhy: result.why,
+        loadoutIntelligenceWhyNow: result.whyNow,
+        loadoutIntelligenceWhyNot: result.whyNot,
+        loadoutIntelligenceChanges: result.changes
+    };
+    Object.entries(fields).forEach(([id, value]) => {
+        const node = document.getElementById(id);
+        if (node) node.textContent = value;
+    });
+    const badge = document.getElementById("loadoutIntelligenceConfidence");
+    if (badge) badge.textContent = result.confidence == null ? "Confidence: --" : "Confidence: " + result.confidence + "%";
+    return result;
 }
 
 function comparisonSlotLabel(slotKey = el.comparisonSlot?.value) {
