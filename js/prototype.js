@@ -2311,8 +2311,22 @@ function mergeScreenshotExtractions(primary, enhanced) {
         if (!existing.max && detail.max) existing.max = detail.max;
 
         if (existing.value && detail.value && existing.value !== detail.value) {
-            existing.value = "";
-            merged.uncertain.push(detail.stat);
+            const low = decimalFromOcr(existing.min || detail.min);
+            const high = decimalFromOcr(existing.max || detail.max);
+            const existingNumeric = decimalFromOcr(existing.value);
+            const detailNumeric = decimalFromOcr(detail.value);
+            const existingFits = !low || !high || (existingNumeric >= low && existingNumeric <= high);
+            const detailFits = !low || !high || (detailNumeric >= low && detailNumeric <= high);
+
+            if (!existingFits && detailFits) {
+                existing.value = detail.value;
+                merged.uncertain = merged.uncertain.filter(label => label !== detail.stat);
+            } else if (existingFits && !detailFits) {
+                // Keep the already range-consistent value.
+            } else {
+                existing.value = "";
+                merged.uncertain.push(detail.stat);
+            }
             return;
         }
 
@@ -2372,11 +2386,27 @@ function mergeScreenshotExtractions(primary, enhanced) {
             return;
         }
 
-        // Fill missing pieces from a self-consistent raw record, but do not let
-        // a later/noisier pass overwrite a value already supported by a pass.
-        if (!existing.value && detail.value) existing.value = detail.value;
+        // Fill missing pieces from a self-consistent raw record. If the current
+        // value is outside the visible roll range but this raw record fits it,
+        // repair the value rather than preserving a known-impossible read.
         if (!existing.min && detail.min) existing.min = detail.min;
         if (!existing.max && detail.max) existing.max = detail.max;
+
+        const low = decimalFromOcr(existing.min);
+        const high = decimalFromOcr(existing.max);
+        const currentNumeric = decimalFromOcr(existing.value);
+        const detailNumeric = decimalFromOcr(detail.value);
+        const currentFits = !existing.value || !low || !high ||
+            (currentNumeric >= low && currentNumeric <= high);
+        const detailFits = detail.value && (!low || !high ||
+            (detailNumeric >= low && detailNumeric <= high));
+
+        if (!existing.value && detail.value) {
+            existing.value = detail.value;
+        } else if (!currentFits && detailFits) {
+            existing.value = detail.value;
+            merged.uncertain = merged.uncertain.filter(label => label !== detail.stat);
+        }
     });
 
     combinedAffixes.forEach(detail => {
@@ -2435,6 +2465,38 @@ function mergeScreenshotExtractions(primary, enhanced) {
                 merged.uncertain = merged.uncertain.filter(label => label !== "Armor");
                 break;
             }
+        }
+    }
+
+    if (!merged.fields.power) {
+        const powerCandidates = [primary.rawText ?? "", enhanced.rawText ?? ""]
+            .map(raw => {
+                const passLines = cleanedOcrLines(raw);
+                if (!passLines.length) return null;
+
+                const stopPattern = /\b(?:imprinted|aspect|empty socket|requires level|sell value|durability|tempers?|mark as junk|compare|drop|scroll)\b/i;
+                const anchors = affixAnchors(passLines, 0, stopPattern);
+                const finalAffixLine = anchors.reduce(
+                    (max, anchor) => Math.max(max, anchor.lineIndex),
+                    0
+                );
+                return powerBlockFromLines(passLines, finalAffixLine + 1);
+            })
+            .filter(Boolean)
+            .sort((a, b) => {
+                const aScore = (a.roll ? 4 : 0) + (a.min && a.max ? 3 : 0) + Math.min(a.text.length / 100, 2);
+                const bScore = (b.roll ? 4 : 0) + (b.min && b.max ? 3 : 0) + Math.min(b.text.length / 100, 2);
+                return bScore - aScore;
+            });
+
+        const recoveredPower = powerCandidates[0];
+        if (recoveredPower) {
+            merged.fields.power = recoveredPower.text;
+            merged.fields.powerValue = recoveredPower.roll;
+            merged.fields.powerMin = recoveredPower.min;
+            merged.fields.powerMax = recoveredPower.max;
+            merged.detected.push("Aspect / unique power");
+            if (recoveredPower.roll) merged.detected.push("Power roll");
         }
     }
 
