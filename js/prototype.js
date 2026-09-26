@@ -551,6 +551,47 @@ function mergeContinuationExtraction(prefix, extraction, ocrConfidence) {
     }
 
     const merged = mergeScreenshotExtractions(currentExtraction, extraction);
+
+    // Continuations are additive evidence. Never let an empty or partial
+    // continuation erase decision data already recovered from the first view.
+    const preserveKeys = [
+        "name", "rarity", "itemType", "itemPower", "baseArmor", "armor",
+        "damage", "requiredLevel", "power", "powerValue", "powerMin",
+        "powerMax", "tempers", "masterwork", "sockets", "socketContents"
+    ];
+    preserveKeys.forEach(key => {
+        const existing = current[key];
+        const next = merged.fields[key];
+        const existingHasValue = existing !== "" && existing !== 0 && existing != null;
+        const nextIsMissing = next === "" || next === 0 || next == null;
+        if (existingHasValue && nextIsMissing) {
+            merged.fields[key] = existing;
+        }
+    });
+
+    const currentAffixes = Array.isArray(current.affixDetails)
+        ? current.affixDetails
+        : [];
+    const mergedAffixes = Array.isArray(merged.fields.affixDetails)
+        ? merged.fields.affixDetails
+        : [];
+    const additiveAffixes = currentAffixes.map(detail => ({ ...detail }));
+    mergedAffixes.forEach(detail => {
+        if (!detail?.stat) return;
+        const existing = additiveAffixes.find(item =>
+            String(item.stat).toLowerCase() === String(detail.stat).toLowerCase()
+        );
+        if (!existing) {
+            if (additiveAffixes.length < MAX_AFFIX_ROWS) additiveAffixes.push({ ...detail });
+            return;
+        }
+        if (!existing.value && detail.value) existing.value = detail.value;
+        if (!existing.min && detail.min) existing.min = detail.min;
+        if (!existing.max && detail.max) existing.max = detail.max;
+    });
+    merged.fields.affixDetails = additiveAffixes;
+    merged.fields.affixes = formatAffixDetails(additiveAffixes);
+
     setGear(prefix, merged.fields);
     prototypeState.screenshotItemTypes[prefix] =
         merged.fields.itemType || prototypeState.screenshotItemTypes[prefix] || "";
