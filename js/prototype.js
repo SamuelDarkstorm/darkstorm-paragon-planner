@@ -27,6 +27,10 @@ const prototypeState = {
     screenshotIncomplete: {
         equipped: false,
         candidate: false
+    },
+    baseScreenshotExtractions: {
+        equipped: null,
+        candidate: null
     }
 };
 
@@ -530,14 +534,27 @@ function sameItemContinuationCheck(prefix, baseExtraction, continuationExtractio
 
 function mergeContinuationExtraction(prefix, extraction, ocrConfidence) {
     const current = getGear(prefix);
-    const currentExtraction = {
-        fields: current,
-        detected: [],
-        inferred: [],
-        rejected: [],
-        uncertain: [],
-        rawText: ""
-    };
+    const storedBase = prototypeState.baseScreenshotExtractions[prefix];
+    const currentExtraction = storedBase
+        ? {
+            ...storedBase,
+            fields: {
+                ...storedBase.fields,
+                // Form values win when the gamer has already corrected them.
+                ...current,
+                affixDetails: Array.isArray(current.affixDetails)
+                    ? current.affixDetails.map(detail => ({ ...detail }))
+                    : []
+            }
+        }
+        : {
+            fields: current,
+            detected: [],
+            inferred: [],
+            rejected: [],
+            uncertain: [],
+            rawText: ""
+        };
     const check = sameItemContinuationCheck(prefix, currentExtraction, extraction);
     const ui = screenshotElements(prefix);
 
@@ -593,6 +610,15 @@ function mergeContinuationExtraction(prefix, extraction, ocrConfidence) {
     merged.fields.affixes = formatAffixDetails(additiveAffixes);
 
     setGear(prefix, merged.fields);
+    prototypeState.baseScreenshotExtractions[prefix] = {
+        ...merged,
+        fields: {
+            ...merged.fields,
+            affixDetails: Array.isArray(merged.fields?.affixDetails)
+                ? merged.fields.affixDetails.map(detail => ({ ...detail }))
+                : []
+        }
+    };
     prototypeState.screenshotItemTypes[prefix] =
         merged.fields.itemType || prototypeState.screenshotItemTypes[prefix] || "";
     prototypeState.itemConfirmed[prefix] = false;
@@ -711,6 +737,7 @@ function renderItemScreenshot(prefix) {
 
 function clearItemScreenshot(prefix, { revoke = true } = {}) {
     const screenshot = prototypeState.screenshots[prefix];
+    prototypeState.baseScreenshotExtractions[prefix] = null;
     clearContinuation(prefix);
 
     if (revoke && screenshot?.url) {
@@ -1986,6 +2013,15 @@ function applyScreenshotExtraction(prefix, extraction, ocrConfidence) {
     }
 
     setGear(prefix, extraction.fields);
+    prototypeState.baseScreenshotExtractions[prefix] = {
+        ...extraction,
+        fields: {
+            ...extraction.fields,
+            affixDetails: Array.isArray(extraction.fields?.affixDetails)
+                ? extraction.fields.affixDetails.map(detail => ({ ...detail }))
+                : []
+        }
+    };
     prototypeState.lastGearComparison = null;
     prototypeState.candidateEquipped = false;
     resetGearVerdict();
