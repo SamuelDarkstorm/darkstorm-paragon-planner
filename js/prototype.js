@@ -135,11 +135,15 @@ function renderEquipmentLoadout() {
                     <strong>Helm Screenshot</strong>
                     <span id="loadoutHelmScreenshotStatus" class="status-pill compact">Temporary</span>
                 </div>
-                <p class="muted">Prototype test: scan a helm with the same reader used by Gear Comparison. Darkstorm will load the OCR draft into Comparison for gamer verification before saving it here.</p>
+                <p class="muted">Scan the equipped helm here. Darkstorm uses the same item reader as Comparison, but keeps the review inside Equipment.</p>
                 <div class="screenshot-actions">
                     <label class="button secondary" for="loadoutHelmScreenshotInput">Choose Screenshot</label>
                     <input id="loadoutHelmScreenshotInput" type="file" accept="image/*" hidden>
                     <button id="loadoutHelmScreenshotRead" type="button" disabled>Read Helm Screenshot</button>
+                    <button id="loadoutHelmConfirm" type="button" hidden>Confirm Helm Data</button>
+                </div>
+                <div id="loadoutHelmReadout" class="screenshot-readout" hidden>
+                    <p id="loadoutHelmReadoutText" class="muted"></p>
                 </div>
             `;
             fields.append(intake);
@@ -183,11 +187,27 @@ function renderEquipmentLoadout() {
     updateLoadoutStatus();
 }
 
+function applyExtractionToLoadout(slotKey, extraction) {
+    const item = {
+        ...emptyLoadoutItem(),
+        ...extraction.fields,
+        affixDetails: Array.isArray(extraction.fields?.affixDetails)
+            ? extraction.fields.affixDetails.map(detail => ({ ...detail }))
+            : []
+    };
+    item.affixes = formatAffixDetails(item.affixDetails);
+    setLoadoutItem(slotKey, item);
+    return item;
+}
+
 function wireLoadoutHelmScreenshotIntake() {
     const input = document.getElementById("loadoutHelmScreenshotInput");
     const read = document.getElementById("loadoutHelmScreenshotRead");
+    const confirm = document.getElementById("loadoutHelmConfirm");
     const status = document.getElementById("loadoutHelmScreenshotStatus");
-    if (!input || !read || !status) return;
+    const readout = document.getElementById("loadoutHelmReadout");
+    const readoutText = document.getElementById("loadoutHelmReadoutText");
+    if (!input || !read || !confirm || !status || !readout || !readoutText) return;
 
     input.addEventListener("change", event => {
         const file = event.target.files?.[0];
@@ -200,47 +220,90 @@ function wireLoadoutHelmScreenshotIntake() {
         prototypeState.loadoutHelmScreenshot = file;
         status.textContent = `${file.name || "Helm screenshot"} · ${formatScreenshotSize(file.size || 0)}`;
         read.disabled = false;
+        confirm.hidden = true;
+        readout.hidden = true;
     });
 
     read.addEventListener("click", async () => {
         const file = prototypeState.loadoutHelmScreenshot;
         if (!file) return;
-
-        // The comparison workspace is intentionally the verification surface.
-        // This keeps free-form item-vs-item comparison intact and avoids a
-        // second OCR/confirmation implementation inside Equipment.
-        el.comparisonSlot.value = "helm";
-        setItemScreenshot("equipped", file);
-        read.disabled = true;
-        status.textContent = "Reading in Comparison…";
-
-        await readItemScreenshot("equipped");
-
-        const extracted = getGear("equipped");
-        const hasUsefulData = extracted.itemType || extracted.itemPower ||
-            extracted.baseArmor || extracted.affixDetails.length || extracted.power;
-
-        if (hasUsefulData) {
-            status.textContent = "OCR draft ready · verify below";
-            document.getElementById("gear")?.scrollIntoView({ behavior: "smooth", block: "start" });
-        } else {
-            status.textContent = "Needs manual review";
+        if (!window.Tesseract?.recognize) {
+            readout.hidden = false;
+            readoutText.textContent = "The screenshot reader did not load. Refresh the page and try again.";
+            return;
         }
-        read.disabled = false;
+
+        read.disabled = true;
+        confirm.hidden = true;
+        status.textContent = "Reading…";
+
+        try {
+            const result = await window.Tesseract.recognize(file, "eng", {
+                logger: message => {
+                    if (message.status === "recognizing text") {
+                        status.textContent = `Reading ${Math.round((message.progress ?? 0) * 100)}%`;
+                    }
+                }
+            });
+
+            let confidence = Number(result?.data?.confidence ?? 0);
+            let extraction = parseDiabloItemText(result?.data?.text ?? "", "helm");
+            let enhancedUsed = false;
+
+            if (shouldRunEnhancedRead(extraction)) {
+                try {
+                    status.textContent = "Trying enhanced item-card read…";
+                    const enhancedSource = await createEnhancedOcrSource(file);
+                    const enhancedResult = await window.Tesseract.recognize(enhancedSource, "eng");
+                    extraction = mergeScreenshotExtractions(
+                        extraction,
+                        parseDiabloItemText(enhancedResult?.data?.text ?? "", "helm")
+                    );
+                    confidence = Math.max(confidence, Number(enhancedResult?.data?.confidence ?? 0));
+                    enhancedUsed = true;
+                } catch (error) {
+                    console.warn("Darkstorm enhanced Equipment read failed:", error);
+                }
+            }
+
+            if ((extraction.detected ?? []).length < 2) {
+                readout.hidden = false;
+                readoutText.textContent =
+                    "Darkstorm could not confidently map enough helm data. The existing Helm fields were left unchanged.";
+                status.textContent = "Needs manual review";
+                return;
+            }
+
+            applyExtractionToLoadout("helm", extraction);
+            prototypeState.loadoutHelmExtraction = extraction;
+            readout.hidden = false;
+            readoutText.textContent =
+                `OCR draft loaded into Helm (${Math.round(confidence)}% text confidence). Review the fields below, correct anything needed, then confirm.`;
+            status.textContent = enhancedUsed ? "OCR draft · enhanced review" : "OCR draft · review";
+            confirm.hidden = false;
+            confirm.textContent = "Confirm Helm Data";
+            markUnsaved();
+        } catch (error) {
+            console.error("Darkstorm Equipment screenshot read failed:", error);
+            readout.hidden = false;
+            readoutText.textContent =
+                "Darkstorm could not read this helm screenshot. Try a tighter crop or enter the item manually.";
+            status.textContent = "Read failed";
+        } finally {
+            read.disabled = false;
+        }
     });
-}
 
-function saveVerifiedEquippedToLoadout() {
-    if (!prototypeState.itemConfirmed.equipped) return;
-    const slotKey = el.comparisonSlot.value;
-    const item = getGear("equipped");
-    setLoadoutItem(slotKey, item);
-    markUnsaved();
-
-    if (slotKey === "helm") {
-        const status = document.getElementById("loadoutHelmScreenshotStatus");
-        if (status) status.textContent = "Verified · saved to Helm";
-    }
+    confirm.addEventListener("click", () => {
+        // The gamer-reviewed form is the trust boundary. Closing the details
+        // card only changes presentation; these fields remain in the loadout.
+        updateLoadoutSummary("helm");
+        updateLoadoutStatus();
+        status.textContent = "Verified · saved to Helm";
+        readoutText.textContent = "Helm verified. You can close this slot; its data stays in the character loadout.";
+        confirm.hidden = true;
+        markUnsaved();
+    });
 }
 
 function getLoadoutItem(slotKey) {
@@ -1126,9 +1189,6 @@ function confirmItemData(prefix) {
     }
 
     prototypeState.itemConfirmed[prefix] = true;
-    if (prefix === "equipped") {
-        saveVerifiedEquippedToLoadout();
-    }
     prototypeState.lastGearComparison = null;
     prototypeState.candidateEquipped = false;
     resetGearVerdict();
