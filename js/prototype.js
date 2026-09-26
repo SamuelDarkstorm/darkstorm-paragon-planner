@@ -328,7 +328,9 @@ function wireLoadoutScreenshotIntake(slot) {
             const headerDiagnostic = rawOcrPasses.map((raw, passIndex) => {
                 const diagnosticLines = cleanedOcrLines(raw);
                 const powerIndex = diagnosticLines.findIndex(line => /\bitem\s+power\b/i.test(line));
-                const end = powerIndex >= 0 ? Math.min(diagnosticLines.length, powerIndex + 2) : Math.min(diagnosticLines.length, 12);
+                // Temporary parser diagnostic: include enough of the tooltip after
+                // Item Power to inspect affixes, Unique/Legendary prose and metadata.
+                const end = powerIndex >= 0 ? Math.min(diagnosticLines.length, powerIndex + 28) : Math.min(diagnosticLines.length, 36);
                 const start = powerIndex >= 0 ? Math.max(0, powerIndex - 8) : 0;
                 return `PASS ${passIndex + 1}\n` + diagnosticLines
                     .slice(start, end)
@@ -2004,7 +2006,7 @@ function lineStatDefinitions(line) {
         let match;
         while ((match = pattern.exec(source)) !== null) {
             // Avoid adding the generic Resistance anchor inside All Resistance.
-            if (stat === "Resistance" && /all\s+$/i.test(source.slice(Math.max(0, match.index - 5), match.index))) {
+            if (stat === "Resistance" && /(?:all|poison|fire|cold|lightning|shadow)\s+$/i.test(source.slice(Math.max(0, match.index - 12), match.index))) {
                 continue;
             }
             const resolvedStat = typeof stat === "function" ? stat(source) : stat;
