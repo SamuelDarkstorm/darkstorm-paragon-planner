@@ -256,6 +256,15 @@
                         <input id="equippedScreenshotInput" type="file" accept="image/*" hidden>
                         <button id="equippedScreenshotRead" type="button" disabled>Read Screenshot</button>
                         <button id="equippedScreenshotRemove" type="button" class="secondary" hidden>Remove</button>
+                        <label id="equippedContinuationLabel" class="button secondary" for="equippedContinuationInput" hidden>Add continuation screenshot</label>
+                        <input id="equippedContinuationInput" type="file" accept="image/*" hidden>
+                        <button id="equippedContinuationRead" type="button" class="secondary" hidden disabled>Read continuation</button>
+                    </div>
+                    <div id="equippedContinuationNotice" class="warning-card" hidden>
+                        <div>
+                            <strong>More item information may be below.</strong>
+                            <p id="equippedContinuationNoticeText">Darkstorm detected a scrollable tooltip. Add the scrolled continuation before confirming this item.</p>
+                        </div>
                     </div>
                     <div id="equippedScreenshotReadout" class="screenshot-readout" hidden>
                         <strong>Extraction review</strong>
@@ -370,6 +379,15 @@
                         <input id="candidateScreenshotInput" type="file" accept="image/*" hidden>
                         <button id="candidateScreenshotRead" type="button" disabled>Read Screenshot</button>
                         <button id="candidateScreenshotRemove" type="button" class="secondary" hidden>Remove</button>
+                        <label id="candidateContinuationLabel" class="button secondary" for="candidateContinuationInput" hidden>Add continuation screenshot</label>
+                        <input id="candidateContinuationInput" type="file" accept="image/*" hidden>
+                        <button id="candidateContinuationRead" type="button" class="secondary" hidden disabled>Read continuation</button>
+                    </div>
+                    <div id="candidateContinuationNotice" class="warning-card" hidden>
+                        <div>
+                            <strong>More item information may be below.</strong>
+                            <p id="candidateContinuationNoticeText">Darkstorm detected a scrollable tooltip. Add the scrolled continuation before confirming this item.</p>
+                        </div>
                     </div>
                     <div id="candidateScreenshotReadout" class="screenshot-readout" hidden>
                         <strong>Extraction review</strong>
