@@ -542,7 +542,7 @@ function continuationPowerFragment(rawText) {
             if (index > start && stop.test(lines[index])) break;
             collected.push(lines[index]);
         }
-        const text = collected.join(" ").replace(/\s+/g, " ").trim();
+        const text = cleanPowerText(collected.join(" "));
         if (!/\b(?:vampiric\s+curse|army\s+of\s+the\s+dead|souls?|soul\s+unleashed)\b/i.test(text)) continue;
 
         const range = decimalRangeFromLine(text);
@@ -593,9 +593,8 @@ function mergeContinuationExtraction(prefix, extraction, ocrConfidence) {
         extraction.fields.power = [existingPower, parsedContinuationPower, continuationFragment.text]
             .filter(Boolean)
             .filter((value, index, array) => array.indexOf(value) === index)
-            .join(" ")
-            .replace(/\s+/g, " ")
-            .trim();
+            .join(" ");
+        extraction.fields.power = cleanPowerText(extraction.fields.power);
         extraction.fields.powerValue = extraction.fields.powerValue || continuationFragment.roll;
         extraction.fields.powerMin = extraction.fields.powerMin || continuationFragment.min;
         extraction.fields.powerMax = extraction.fields.powerMax || continuationFragment.max;
@@ -1744,6 +1743,19 @@ function sequentialAffixes(lines, startIndex, stopPattern) {
             nextSameLine?.charIndex ?? Infinity
         );
 
+        if (!range && /Multiplier/i.test(anchor.stat)) {
+            const line = lines[anchor.lineIndex];
+            const segmentStart = Math.max(0, anchor.valueCharIndex >= 0 ? anchor.valueCharIndex : anchor.charIndex - 20);
+            const segmentEnd = nextSameLine?.charIndex ?? line.length;
+            const segment = line.slice(segmentStart, segmentEnd);
+            const multiplierRange = segment.match(/[\[(]\s*([0-9OIlS,.]+(?:\.[0-9]+)?)\s*[-–—]\s*([0-9OIlS,.]+(?:\.[0-9]+)?)\s*[\])]?\s*%?/);
+            if (multiplierRange) {
+                const low = decimalFromOcr(multiplierRange[1]);
+                const high = decimalFromOcr(multiplierRange[2]);
+                if (low > 0 && high >= low) range = { low, high };
+            }
+        }
+
         // If the range wrapped, only inspect following lines until the next
         // recognized stat anchor. Never borrow a later stat's range.
         if (!range) {
@@ -1807,6 +1819,16 @@ function sequentialAffixes(lines, startIndex, stopPattern) {
     };
 }
 
+function cleanPowerText(value) {
+    return String(value ?? "")
+        .replace(/\|?\s*\[x\]\s*/gi, " ")
+        .replace(/[|¦]+/g, " ")
+        .replace(/(^|\s)[{}§]+(?=\s|$)/g, " ")
+        .replace(/\s+([,.;:])/g, "$1")
+        .replace(/\s{2,}/g, " ")
+        .trim();
+}
+
 function powerBlockFromLines(lines, affixEndIndex = 0) {
     const metadataPattern = /\b(?:empty socket|requires level|sell value|durability|equip|compare|mark as junk|drop|scroll|tempers?|properties lost when equipped)\b|\(\s*[0-9OIlS]{1,4}\s*\/\s*[0-9OIlS,]{3,}\s*\)/i;
     const explicitStart = lines.findIndex((line, index) =>
@@ -1843,11 +1865,10 @@ function powerBlockFromLines(lines, affixEndIndex = 0) {
         powerLines.push(line);
     }
 
-    const text = powerLines.join(" ")
-        .replace(/^.*?\b(?:imprinted|aspect)\b\s*:?\s*/i, "")
-        .replace(/\|?\s*\[x\]\s*/gi, " ")
-        .replace(/\s+/g, " ")
-        .trim();
+    const text = cleanPowerText(
+        powerLines.join(" ")
+            .replace(/^.*?\b(?:imprinted|aspect)\b\s*:?\s*/i, "")
+    );
 
     const partialUniquePower =
         /\b(?:your\s+summons|vampiric\s+curse|consuming\s+a\s+corpse|only\s+army\s+of\s+the\s+dead)\b/i.test(text) &&
