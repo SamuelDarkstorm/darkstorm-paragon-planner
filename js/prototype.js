@@ -1747,8 +1747,18 @@ function sequentialAffixes(lines, startIndex, stopPattern) {
             const line = lines[anchor.lineIndex];
             const segmentStart = Math.max(0, anchor.valueCharIndex >= 0 ? anchor.valueCharIndex : anchor.charIndex - 20);
             const segmentEnd = nextSameLine?.charIndex ?? line.length;
-            const segment = line.slice(segmentStart, segmentEnd);
-            const multiplierRange = segment.match(/[\[(]\s*([0-9OIlS,.]+(?:\.[0-9]+)?)\s*[-–—]\s*([0-9OIlS,.]+(?:\.[0-9]+)?)\s*[\])]?\s*%?/);
+            const sameLineSegment = line.slice(segmentStart, segmentEnd);
+
+            // Multiplier ranges are often wrapped by OCR, e.g.
+            // "x18% All Damage Multiplier [12 -" then "20]%".
+            const wrappedSegment = [
+                sameLineSegment,
+                ...lines.slice(anchor.lineIndex + 1, Math.min(lines.length, anchor.lineIndex + 3))
+            ].join(" ");
+
+            const multiplierRange = wrappedSegment.match(
+                /[\[(]?\s*([0-9OIlS,.]+(?:\.[0-9]+)?)\s*[-–—]\s*([0-9OIlS,.]+(?:\.[0-9]+)?)\s*[\])]?\s*%?/
+            );
             if (multiplierRange) {
                 const low = decimalFromOcr(multiplierRange[1]);
                 const high = decimalFromOcr(multiplierRange[2]);
