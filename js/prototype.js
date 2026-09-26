@@ -1761,8 +1761,21 @@ function sequentialAffixes(lines, startIndex, stopPattern) {
             );
             if (multiplierRange) {
                 const low = decimalFromOcr(multiplierRange[1]);
-                const high = decimalFromOcr(multiplierRange[2]);
-                if (low > 0 && high >= low) range = { low, high };
+                let high = decimalFromOcr(multiplierRange[2]);
+
+                // OCR sometimes turns the closing bracket in "[12 - 20]%"
+                // into a trailing 1, yielding 201. For a percentage multiplier
+                // range, only repair that specific implausible shape.
+                if (
+                    high >= 100 &&
+                    /1$/.test(String(multiplierRange[2]).trim()) &&
+                    high / 10 >= low &&
+                    high / 10 <= 100
+                ) {
+                    high = Math.trunc(high / 10);
+                }
+
+                if (low > 0 && high >= low && high <= 100) range = { low, high };
             }
         }
 
