@@ -1490,20 +1490,23 @@ function parseItemName(lines, rarityIndex) {
         return { value: "", confident: false };
     }
 
-    // If two adjacent title-like lines appear immediately above the rarity
-    // line, allow a wrapped name. Never join more than two lines.
-    const previous = candidates[candidates.length - 2];
+    // Diablo item names frequently wrap across 2-3 short all-caps lines
+    // (e.g. BRISTLEBACK / GARGOYLE / GREATSWORD). Reconstruct the contiguous
+    // title block immediately above rarity, while still refusing UI text.
+    const contiguous = [];
+    for (let index = candidates.length - 1; index >= 0; index -= 1) {
+        const candidate = candidates[index];
+        const expectedIndex = rarityIndex - 1 - contiguous.length;
+        if (candidate.index !== expectedIndex) break;
+        contiguous.unshift(candidate.line);
+        if (contiguous.length === 3) break;
+    }
+
     let value = nearest.line;
-
-    if (
-        previous &&
-        nearest.index === rarityIndex - 1 &&
-        previous.index === rarityIndex - 2
-    ) {
-        const combined = `${previous.line} ${nearest.line}`.trim();
+    if (contiguous.length >= 2) {
+        const combined = contiguous.join(" ").trim();
         const combinedWords = combined.split(/\s+/).filter(Boolean);
-
-        if (combined.length <= 48 && combinedWords.length <= 7) {
+        if (combined.length <= 64 && combinedWords.length <= 8) {
             value = combined;
         }
     }
