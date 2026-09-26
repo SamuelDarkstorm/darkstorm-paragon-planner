@@ -1606,8 +1606,15 @@ function recoverHeaderIdentityNearItemPower(lines) {
         title.unshift(cleaned);
     }
 
-    const name = title.join(" ").trim();
-    const wordCount = name.split(/\s+/).filter(Boolean).length;
+    let name = title.join(" ").trim();
+    // Common tooltip border/OCR debris can appear as tiny lowercase prefixes
+    // or short suffixes around an otherwise clean all-caps title.
+    let titleWords = name.split(/\s+/).filter(Boolean);
+    while (titleWords.length > 1 && /^[a-z]{1,3}$/.test(titleWords[0])) titleWords.shift();
+    while (titleWords.length > 1 && /^[A-Z]{1,3}$/.test(titleWords[titleWords.length - 1]) &&
+           !/^(?:OF|THE|AND)$/.test(titleWords[titleWords.length - 1])) titleWords.pop();
+    name = titleWords.join(" ");
+    const wordCount = titleWords.length;
     return {
         name: name.length >= 3 && name.length <= 72 && wordCount <= 9 ? name : "",
         rarity,
@@ -1918,6 +1925,10 @@ function affixStatDefinitionFromText(text) {
         [/damage\s+reduction/i, "Damage Reduction", true],
         [/lucky\s+hit/i, "Lucky Hit", true],
         [/all\s+resistance/i, "All Resistance", true],
+        [/(?:poison|fire|cold|lightning|shadow)\s+resistance/i, source => {
+            const m = source.match(/(poison|fire|cold|lightning|shadow)\s+resistance/i);
+            return m ? m[1][0].toUpperCase() + m[1].slice(1).toLowerCase() + " Resistance" : "Resistance";
+        }, false],
         [/resistance/i, "Resistance", true],
         [/intelligence/i, "Intelligence", false],
         [/strength/i, "Strength", false],
@@ -1971,6 +1982,10 @@ function lineStatDefinitions(line) {
         [/damage\s+reduction/ig, "Damage Reduction", true],
         [/lucky\s+hit/ig, "Lucky Hit", true],
         [/all\s+resistance/ig, "All Resistance", true],
+        [/(?:poison|fire|cold|lightning|shadow)\s+resistance/ig, source => {
+            const m = source.match(/(poison|fire|cold|lightning|shadow)\s+resistance/i);
+            return m ? m[1][0].toUpperCase() + m[1].slice(1).toLowerCase() + " Resistance" : "Resistance";
+        }, false],
         [/resistance/ig, "Resistance", true],
         [/intelligence/ig, "Intelligence", false],
         [/strength/ig, "Strength", false],
@@ -1992,7 +2007,8 @@ function lineStatDefinitions(line) {
             if (stat === "Resistance" && /all\s+$/i.test(source.slice(Math.max(0, match.index - 5), match.index))) {
                 continue;
             }
-            definitions.push({ stat, percent, charIndex: match.index });
+            const resolvedStat = typeof stat === "function" ? stat(source) : stat;
+            definitions.push({ stat: resolvedStat, percent, charIndex: match.index });
         }
     });
 
@@ -2221,7 +2237,7 @@ function cleanPowerText(value) {
 }
 
 function powerBlockFromLines(lines, affixEndIndex = 0) {
-    const metadataPattern = /\b(?:empty socket|requires level|sell value|durability|equip|compare|mark as junk|drop|scroll|tempers?|properties lost when equipped)\b|\(\s*[0-9OIlS]{1,4}\s*\/\s*[0-9OIlS,]{3,}\s*\)/i;
+    const metadataPattern = /\b(?:empty socket|requires level|sell value|durability|equip|compare|mark as junk|drop|scroll|tempers?|properties lost when equipped|poison resistance|fire resistance|cold resistance|lightning resistance|shadow resistance)\b|\(\s*[0-9OIlS]{1,4}\s*\/\s*[0-9OIlS,]{3,}\s*\)/i;
     const explicitStart = lines.findIndex((line, index) =>
         index >= affixEndIndex && /\b(?:imprinted|aspect)\b/i.test(line)
     );
@@ -2414,6 +2430,20 @@ function parseDiabloItemText(rawText, slotKey) {
         }
     }
 
+    if (fields.itemType === "Ring") {
+        const allResistLine = lines.find(line => /\ball\s+resist\b/i.test(line));
+        if (allResistLine) {
+            const match = allResistLine.match(/([0-9OIlS,.]+)\s+All\s+Resist/i);
+            if (match) {
+                const value = integerFromOcr(match[1]);
+                if (value > 0) {
+                    fields.defense = value;
+                    detected.push("All Resist");
+                }
+            }
+        }
+    }
+
     // Affixes own only the stat block. Legendary/unique power prose owns
     // everything after the first power boundary, even when OCR misses the
     // literal "Aspect" or "Imprinted" label. This prevents power roll ranges
@@ -2440,10 +2470,16 @@ function parseDiabloItemText(rawText, slotKey) {
 
     let uniquePowerIndex = -1;
     if (explicitPowerIndex < 0 && fields.rarity === "Unique") {
-        uniquePowerIndex = lines.findIndex((line, index) =>
+        // Prefer the earliest strong Unique-power opening. Continuation prose
+        // such as "Curses inflicted..." must not outrank "A dark aura...".
+        const strongOpen = lines.findIndex((line, index) =>
             index >= cursor &&
-            /\b(?:your\s+summons|a\s+dark\s+aura|only\s+army|curses?\s+inflicted|consuming\s+a\s+corpse)\b/i.test(line)
+            /\b(?:your\s+summons|a\s+dark\s+aura|only\s+army|consuming\s+a\s+corpse)\b/i.test(line)
         );
+        const continuationOpen = lines.findIndex((line, index) =>
+            index >= cursor && /\bcurses?\s+inflicted\b/i.test(line)
+        );
+        uniquePowerIndex = strongOpen >= 0 ? strongOpen : continuationOpen;
     }
     const affixHardEnd = explicitPowerIndex >= 0
         ? explicitPowerIndex
@@ -2481,7 +2517,7 @@ function parseDiabloItemText(rawText, slotKey) {
             : (inferredPowerIndex >= 0 ? inferredPowerIndex : finalAffixLine + 1));
     let powerBlock = null;
     if (powerSearchStart >= 0 && (explicitPowerIndex >= 0 || uniquePowerIndex >= 0 || inferredPowerIndex >= 0)) {
-        const metadataPattern = /\b(?:empty socket|requires level|sell value|durability|equip|compare|mark as junk|drop|scroll|tempers?|properties lost when equipped)\b/i;
+        const metadataPattern = /\b(?:empty socket|requires level|sell value|durability|equip|compare|mark as junk|drop|scroll|tempers?|properties lost when equipped|poison resistance|fire resistance|cold resistance|lightning resistance|shadow resistance)\b/i;
         const blockLines = [];
         for (let index = powerSearchStart; index < lines.length && blockLines.length < 10; index += 1) {
             if (index > powerSearchStart && metadataPattern.test(lines[index])) break;
