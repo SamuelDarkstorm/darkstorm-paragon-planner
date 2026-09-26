@@ -1746,6 +1746,8 @@ function affixStatDefinitionFromText(text) {
         [/weapon\s+damage/i, "Weapon Damage", false],
         [/life\s+on\s+(?:hit|kill)/i, source => /kill/i.test(source) ? "Life on Kill" : "Life on Hit", false],
         [/all\s+damage\s+multiplier/i, "All Damage Multiplier", true],
+        [/vulnerable\s+damage\s+multiplier/i, "Vulnerable Damage Multiplier", true],
+        [/shadow\s+damage\s+multiplier/i, "Shadow Damage Multiplier", true],
         [/maximum\s+life/i, "Maximum Life", false],
         [/fortify\s+generation/i, "Fortify Generation", true],
         [/healing\s+received/i, "Healing Received", true],
@@ -1797,6 +1799,8 @@ function lineStatDefinitions(line) {
         [/life\s+on\s+hit/ig, "Life on Hit", false],
         [/life\s+on\s+kill/ig, "Life on Kill", false],
         [/all\s+damage\s+multiplier/ig, "All Damage Multiplier", true],
+        [/vulnerable\s+damage\s+multiplier/ig, "Vulnerable Damage Multiplier", true],
+        [/shadow\s+damage\s+multiplier/ig, "Shadow Damage Multiplier", true],
         [/maximum\s+life/ig, "Maximum Life", false],
         [/fortify\s+generation/ig, "Fortify Generation", true],
         [/healing\s+received/ig, "Healing Received", true],
@@ -2069,11 +2073,11 @@ function powerBlockFromLines(lines, affixEndIndex = 0) {
             if (metadataPattern.test(lines[index])) break;
             const window = lines.slice(index, Math.min(lines.length, index + 6)).join(" ");
             const hasPowerVocabulary =
-                /\b(?:damage|increased|deals|makes|enemies|vulnerable|ground|desecrated|seconds?|summons?|vampiric|curse|corpse|souls?|army)\b/i.test(window);
+                /\b(?:damage|increased|deals|makes|enemies|vulnerable|ground|desecrated|seconds?|summons?|vampiric|curse|corpse|souls?|army|dodge|block|trigger|attack|attacker|thorns)\b/i.test(window);
             const hasPercentEvidence =
                 /[0-9OIlS]+(?:\.[0-9OIlS]+)?\s*%(?:\s*\|?\s*\[x\])?/.test(window);
             const hasUniqueProse =
-                /\b(?:your\s+summons|vampiric\s+curse|consuming\s+a\s+corpse|only\s+army\s+of\s+the\s+dead)\b/i.test(window);
+                /\b(?:your\s+summons|vampiric\s+curse|consuming\s+a\s+corpse|only\s+army\s+of\s+the\s+dead|a\s+dark\s+aura|decrepify|iron\s+maiden|curses?\s+inflicted)\b/i.test(window);
             if (hasPowerVocabulary && (hasPercentEvidence || hasUniqueProse)) {
                 start = index;
                 break;
@@ -2096,7 +2100,7 @@ function powerBlockFromLines(lines, affixEndIndex = 0) {
     );
 
     const partialUniquePower =
-        /\b(?:your\s+summons|vampiric\s+curse|consuming\s+a\s+corpse|only\s+army\s+of\s+the\s+dead)\b/i.test(text) &&
+        /\b(?:your\s+summons|vampiric\s+curse|consuming\s+a\s+corpse|only\s+army\s+of\s+the\s+dead|a\s+dark\s+aura|decrepify|iron\s+maiden|curses?\s+inflicted)\b/i.test(text) &&
         text.length >= 35;
     if (!powerLooksUsable(text) && !partialUniquePower) return null;
 
@@ -2127,10 +2131,19 @@ function parseDiabloItemText(rawText, slotKey) {
     const rejected = [];
     const uncertain = [];
 
-    const rarityIndex = lines.findIndex(line =>
+    let rarityIndex = lines.findIndex(line =>
         /\b(?:legendary|unique|rare|magic)\b/i.test(line) &&
         /\b(?:helm|chest|armor|gloves|pants|boots|amulet|ring|sword|axe|mace|dagger|wand|scythe|focus|shield|staff|polearm|totem)\b/i.test(line)
     );
+
+    // Weapon headers are especially prone to line wrapping. Accept a rarity
+    // line when a recognized item type appears in the next two OCR lines.
+    if (rarityIndex < 0) {
+        rarityIndex = lines.findIndex((line, index) =>
+            /\b(?:legendary|unique|rare|magic)\b/i.test(line) &&
+            Boolean(exactItemTypeFromText(lines.slice(index, index + 3).join(" ")))
+        );
+    }
 
     if (rarityIndex >= 0) {
         const rarityMatch = lines[rarityIndex].match(/\b(Legendary|Unique|Rare|Magic)\b/i);
@@ -2140,7 +2153,7 @@ function parseDiabloItemText(rawText, slotKey) {
             detected.push("Rarity");
         }
 
-        const exactType = exactItemTypeFromText(lines[rarityIndex]);
+        const exactType = exactItemTypeFromText(lines.slice(rarityIndex, rarityIndex + 3).join(" "));
         if (exactType) {
             fields.itemType = exactType;
             detected.push("Item type");
@@ -2461,13 +2474,18 @@ function mergeScreenshotExtractions(primary, enhanced) {
                     merged.uncertain.push("Name");
                 }
             } else if (primaryName || enhancedName) {
-                // One OCR pass is not enough evidence for a noisy item name.
-                // If only one pass sees a name, leave it for the gamer to enter.
-                merged.fields.name = "";
-                merged.detected = merged.detected.filter(
-                    label => label !== "Name"
-                );
-                merged.uncertain.push("Name");
+                const loneName = primaryName || enhancedName;
+                const cleanTitle = /^[A-Za-z][A-Za-z'’& -]{2,48}$/.test(loneName) &&
+                    loneName.split(/\s+/).filter(Boolean).length <= 7;
+                if (cleanTitle) {
+                    merged.fields.name = loneName;
+                    merged.detected.push("Name");
+                    merged.uncertain = merged.uncertain.filter(label => label !== "Name");
+                } else {
+                    merged.fields.name = "";
+                    merged.detected = merged.detected.filter(label => label !== "Name");
+                    merged.uncertain.push("Name");
+                }
             }
 
             return;
