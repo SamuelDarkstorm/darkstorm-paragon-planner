@@ -1496,6 +1496,9 @@ function powerLooksUsable(power) {
 function affixStatDefinitionFromText(text) {
     const source = String(text ?? "");
     const statMap = [
+        [/weapon\s+damage/i, "Weapon Damage", false],
+        [/life\s+on\s+(?:hit|kill)/i, source => /kill/i.test(source) ? "Life on Kill" : "Life on Hit", false],
+        [/all\s+damage\s+multiplier/i, "All Damage Multiplier", true],
         [/maximum\s+life/i, "Maximum Life", false],
         [/fortify\s+generation/i, "Fortify Generation", true],
         [/healing\s+received/i, "Healing Received", true],
@@ -1520,7 +1523,9 @@ function affixStatDefinitionFromText(text) {
     ];
 
     const match = statMap.find(([pattern]) => pattern.test(source));
-    return match ? { stat: match[1], percent: match[2] } : null;
+    if (!match) return null;
+    const stat = typeof match[1] === "function" ? match[1](source) : match[1];
+    return { stat, percent: match[2] };
 }
 
 function affixStatFromText(text) {
@@ -1541,6 +1546,10 @@ function lineStatDefinitions(line) {
     const source = String(line ?? "");
     const definitions = [];
     const statMap = [
+        [/weapon\s+damage/ig, "Weapon Damage", false],
+        [/life\s+on\s+hit/ig, "Life on Hit", false],
+        [/life\s+on\s+kill/ig, "Life on Kill", false],
+        [/all\s+damage\s+multiplier/ig, "All Damage Multiplier", true],
         [/maximum\s+life/ig, "Maximum Life", false],
         [/fortify\s+generation/ig, "Fortify Generation", true],
         [/healing\s+received/ig, "Healing Received", true],
@@ -1757,7 +1766,7 @@ function powerBlockFromLines(lines, affixEndIndex = 0) {
             if (metadataPattern.test(lines[index])) break;
             const window = lines.slice(index, Math.min(lines.length, index + 6)).join(" ");
             if (
-                /\b(?:damage|increased|deals|makes|enemies|vulnerable|ground|desecrated|seconds?)\b/i.test(window) &&
+                /\b(?:damage|increased|deals|makes|enemies|vulnerable|ground|desecrated|seconds?|summons?|vampiric|curse|corpse|souls?|army)\b/i.test(window) &&
                 /[0-9OIlS]+(?:\.[0-9OIlS]+)?\s*%(?:\s*\|?\s*\[x\])?/.test(window)
             ) {
                 start = index;
@@ -1892,14 +1901,14 @@ function parseDiabloItemText(rawText, slotKey) {
     // every header field was readable.
     cursor = headerEnd;
 
-    if (slotKey === "mainHand" || slotKey === "offHand") {
-        const damageLine = findNearbyOcrValue(lines, /(?:Weapon\s+)?Damage/i, cursor, 5);
-        if (damageLine) {
-            const value = numberBeforeLabel(damageLine.line, /(?:Weapon\s+)?Damage/i);
+    const weaponLike = /(?:sword|axe|mace|dagger|wand|scythe|staff|polearm)/i.test(fields.itemType);
+    if (weaponLike || slotKey === "mainHand" || slotKey === "offHand") {
+        const dpsLine = findLineWith(lines, /Damage\s+Per\s+Second/i, Math.max(0, rarityIndex + 1), 10);
+        if (dpsLine) {
+            const value = numberBeforeLabel(dpsLine.line, /Damage\s+Per\s+Second/i);
             if (value > 0 && value < 1000000) {
                 fields.damage = value;
-                detected.push("Damage");
-                cursor = damageLine.index + 1;
+                detected.push("Damage per second");
             }
         }
     }
@@ -1915,9 +1924,16 @@ function parseDiabloItemText(rawText, slotKey) {
         index >= cursor &&
         /\b(?:empty socket|requires level|sell value|durability|tempers?|mark as junk|compare|drop|scroll)\b/i.test(line)
     );
+    let uniquePowerIndex = -1;
+    if (explicitPowerIndex < 0 && fields.rarity === "Unique") {
+        uniquePowerIndex = lines.findIndex((line, index) =>
+            index >= cursor &&
+            /\b(?:your\s+summons|a\s+dark\s+aura|only\s+army|curses?\s+inflicted|consuming\s+a\s+corpse)\b/i.test(line)
+        );
+    }
     const affixHardEnd = explicitPowerIndex >= 0
         ? explicitPowerIndex
-        : (metadataIndex >= 0 ? metadataIndex : lines.length);
+        : (uniquePowerIndex >= 0 ? uniquePowerIndex : (metadataIndex >= 0 ? metadataIndex : lines.length));
     const affixLines = lines.slice(0, affixHardEnd);
 
     const stopPattern = /\b(?:imprinted|aspect|empty socket|requires level|sell value|durability|tempers?|mark as junk|compare|drop|scroll)\b/i;
@@ -1942,7 +1958,7 @@ function parseDiabloItemText(rawText, slotKey) {
     // comparison text creates a late false affix anchor.
     const powerSearchStart = explicitPowerIndex >= 0
         ? explicitPowerIndex
-        : finalAffixLine + 1;
+        : (uniquePowerIndex >= 0 ? uniquePowerIndex : finalAffixLine + 1);
     const powerBlock = powerBlockFromLines(lines, powerSearchStart);
 
     if (powerBlock) {
