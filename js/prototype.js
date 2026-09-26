@@ -159,7 +159,10 @@ function renderEquipmentLoadout() {
             if (field.wide) label.classList.add("wide");
             label.append(document.createTextNode(field.label));
 
-            const input = field.type === "textarea"
+            // Long prose such as Aspect / Unique Power should wrap like
+            // affix notes instead of forcing horizontal scrolling.
+            const useTextarea = field.type === "textarea" || field.key === "power";
+            const input = useTextarea
                 ? document.createElement("textarea")
                 : document.createElement("input");
 
@@ -167,8 +170,8 @@ function renderEquipmentLoadout() {
             input.dataset.slot = slot.key;
             input.dataset.field = field.key;
 
-            if (field.type === "textarea") {
-                input.rows = 2;
+            if (useTextarea) {
+                input.rows = field.key === "power" ? 3 : 2;
             } else {
                 input.type = field.type;
             }
