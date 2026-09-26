@@ -1937,7 +1937,13 @@ function parseDiabloItemText(rawText, slotKey) {
     // Aspect/Imprinted labels, but recover conservatively when OCR drops them.
     const finalAffixLine = affixAnchors(affixLines, cursor, stopPattern)
         .reduce((max, anchor) => Math.max(max, anchor.lineIndex), cursor);
-    const powerBlock = powerBlockFromLines(lines, finalAffixLine + 1);
+    // If OCR preserved an explicit power label, start there. Using the final
+    // affix anchor as the only lower bound can jump past the power when noisy
+    // comparison text creates a late false affix anchor.
+    const powerSearchStart = explicitPowerIndex >= 0
+        ? explicitPowerIndex
+        : finalAffixLine + 1;
+    const powerBlock = powerBlockFromLines(lines, powerSearchStart);
 
     if (powerBlock) {
         fields.power = powerBlock.text;
