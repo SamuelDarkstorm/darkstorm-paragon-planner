@@ -1743,7 +1743,7 @@ function sequentialAffixes(lines, startIndex, stopPattern) {
 }
 
 function powerBlockFromLines(lines, affixEndIndex = 0) {
-    const metadataPattern = /\b(?:empty socket|requires level|sell value|durability|equip|compare|mark as junk|drop|scroll|tempers?)\b/i;
+    const metadataPattern = /\b(?:empty socket|requires level|sell value|durability|equip|compare|mark as junk|drop|scroll|tempers?|properties lost when equipped)\b|\(\s*[0-9OIlS]{1,4}\s*\/\s*[0-9OIlS,]{3,}\s*\)/i;
     const explicitStart = lines.findIndex((line, index) =>
         index >= affixEndIndex && /\b(?:imprinted|aspect)\b/i.test(line)
     );
