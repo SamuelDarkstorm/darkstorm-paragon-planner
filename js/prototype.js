@@ -1464,7 +1464,7 @@ function recoverItemIdentityFromRawPasses(rawPasses = []) {
 }
 
 function normalizedItemName(value) {
-    return String(value ?? "")
+    return normalizeIdentityOcr(value)
         .toLowerCase()
         .replace(/[^a-z0-9]+/g, " ")
         .trim();
@@ -1539,26 +1539,61 @@ function parseItemName(lines, rarityIndex) {
     };
 }
 
+function normalizeIdentityOcr(value) {
+    return String(value ?? "")
+        .replace(/[®©]/g, "O")
+        .replace(/[Ø@]/g, "O")
+        .replace(/[–—]/g, "-")
+        .replace(/\s+/g, " ")
+        .trim();
+}
+
 function recoverHeaderIdentityNearItemPower(lines) {
     const powerIndex = lines.findIndex(line => /\bitem\s+power\b/i.test(line));
     if (powerIndex < 1) return { name: "", rarity: "", itemType: "" };
-    const header = lines.slice(Math.max(0, powerIndex - 8), powerIndex);
-    const headerText = header.join(" ");
-    const rarityMatch = headerText.match(/\b(Legendary|Unique|Rare|Magic)\b/i);
+
+    const start = Math.max(0, powerIndex - 10);
+    const header = lines.slice(start, powerIndex).map(normalizeIdentityOcr);
+    const rarityLocal = header.findIndex(line => /\b(?:legendary|unique|rare|magic)\b/i.test(line));
+    if (rarityLocal < 0) return { name: "", rarity: "", itemType: "" };
+
+    const rarityMatch = header[rarityLocal].match(/\b(Legendary|Unique|Rare|Magic)\b/i);
     const rarity = rarityMatch ? rarityMatch[1][0].toUpperCase() + rarityMatch[1].slice(1).toLowerCase() : "";
-    const itemType = exactItemTypeFromText(headerText);
-    const ri = header.findIndex(line => /\b(?:legendary|unique|rare|magic)\b/i.test(line));
-    if (ri <= 0) return { name: "", rarity, itemType };
+
+    // Type may wrap: "Legendary Two-Handed /" then "Sword".
+    const typeWindow = header.slice(rarityLocal, Math.min(header.length, rarityLocal + 3))
+        .join(" ")
+        .replace(/[|/\\]+/g, " ");
+    const itemType = exactItemTypeFromText(typeWindow);
+
+    // Walk upward from rarity, collecting title-like lines. Skip pure border/UI
+    // noise but stop before EQUIPPED / Item Selected. Strip border punctuation
+    // around the words instead of rejecting the entire OCR line.
     const title = [];
-    for (let i = ri - 1; i >= 0 && title.length < 4; i -= 1) {
-        const line = header[i].replace(/[Ø@]/g, "O").replace(/^[^A-Za-z]+|[^A-Za-z'’& -]+$/g, "").replace(/\s+/g, " ").trim();
-        if (!line || /\b(?:equipped|item selected|character|inventory|compare)\b/i.test(line)) break;
-        if ((line.match(/[A-Za-z]/g) ?? []).length < 3) break;
-        title.unshift(line);
+    for (let i = rarityLocal - 1; i >= 0 && title.length < 4; i -= 1) {
+        let line = header[i];
+        if (/\b(?:equipped|item selected|two-handed.*selected)\b/i.test(line)) break;
+        line = line
+            .replace(/^[^A-Za-z]+/, "")
+            .replace(/[^A-Za-z'’& -]+$/g, "")
+            .replace(/\s+/g, " ")
+            .trim();
+        if (!line) continue;
+        if (/\b(?:equipped|character|inventory|compare)\b/i.test(line)) break;
+        const words = line.match(/[A-Za-z][A-Za-z'’&-]*/g) ?? [];
+        if (!words.length) continue;
+        const cleaned = words.join(" ");
+        if (cleaned.length < 3) continue;
+        title.unshift(cleaned);
     }
+
     const name = title.join(" ").trim();
-    const words = name.split(/\s+/).filter(Boolean);
-    return { name: name.length >= 3 && name.length <= 72 && words.length <= 9 ? name : "", rarity, itemType };
+    const wordCount = name.split(/\s+/).filter(Boolean).length;
+    return {
+        name: name.length >= 3 && name.length <= 72 && wordCount <= 9 ? name : "",
+        rarity,
+        itemType
+    };
 }
 
 function findLineWith(lines, pattern, startIndex = 0, maxDistance = Infinity) {
