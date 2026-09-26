@@ -151,10 +151,6 @@ function renderEquipmentLoadout() {
             </div>
             <div id="loadout-${slotId}-readout" class="screenshot-readout" hidden>
                 <p id="loadout-${slotId}-readout-text" class="muted"></p>
-                <details id="loadout-${slotId}-ocr-debug" class="ocr-debug">
-                    <summary>OCR header diagnostic</summary>
-                    <pre id="loadout-${slotId}-ocr-debug-text"></pre>
-                </details>
             </div>
         `;
         fields.append(intake);
@@ -224,9 +220,7 @@ function wireLoadoutScreenshotIntake(slot) {
     const status = document.getElementById(`loadout-${slotKey}-screenshot-status`);
     const readout = document.getElementById(`loadout-${slotKey}-readout`);
     const readoutText = document.getElementById(`loadout-${slotKey}-readout-text`);
-    const debug = document.getElementById(`loadout-${slotKey}-ocr-debug`);
-    const debugText = document.getElementById(`loadout-${slotKey}-ocr-debug-text`);
-    if (!input || !read || !confirm || !remove || !preview || !empty || !status || !readout || !readoutText || !debug || !debugText) return;
+    if (!input || !read || !confirm || !remove || !preview || !empty || !status || !readout || !readoutText) return;
 
     input.addEventListener("change", event => {
         const file = event.target.files?.[0];
@@ -325,21 +319,6 @@ function wireLoadoutScreenshotIntake(slot) {
             applyExtractionToLoadout(slotKey, extraction);
             prototypeState.loadoutExtractions[slotKey] = extraction;
 
-            const headerDiagnostic = rawOcrPasses.map((raw, passIndex) => {
-                const diagnosticLines = cleanedOcrLines(raw);
-                const powerIndex = diagnosticLines.findIndex(line => /\bitem\s+power\b/i.test(line));
-                // Temporary parser diagnostic: include enough of the tooltip after
-                // Item Power to inspect affixes, Unique/Legendary prose and metadata.
-                const end = powerIndex >= 0 ? Math.min(diagnosticLines.length, powerIndex + 28) : Math.min(diagnosticLines.length, 36);
-                const start = powerIndex >= 0 ? Math.max(0, powerIndex - 8) : 0;
-                return `PASS ${passIndex + 1}\n` + diagnosticLines
-                    .slice(start, end)
-                    .map((line, offset) => `${start + offset}: ${line}`)
-                    .join("\n");
-            }).join("\n\n");
-
-            debugText.textContent = headerDiagnostic || "No OCR header text returned.";
-            debug.open = true;
             readout.hidden = false;
             readoutText.textContent =
                 `OCR draft loaded into ${slot.label} (${Math.round(confidence)}% text confidence). Review the fields below, correct anything needed, then confirm.`;
@@ -2102,6 +2081,30 @@ function affixAnchors(lines, startIndex, stopPattern) {
     return anchors;
 }
 
+function recoverMultiplierAffixesBefore(lines, endIndex) {
+    const details = [];
+    const safeEnd = Math.max(0, Math.min(lines.length, endIndex));
+    for (let index = 0; index < safeEnd; index += 1) {
+        const line = String(lines[index] ?? "");
+        const match = line.match(/[xX×]\s*([0-9OIlS,.]+(?:\.[0-9]+)?)\s*%\s+([A-Za-z ]+?Damage Multiplier)\b/i);
+        if (!match) continue;
+        const value = decimalFromOcr(match[1]);
+        if (!value) continue;
+        const stat = match[2].replace(/\s+/g, " ").trim();
+        const window = lines.slice(index, Math.min(safeEnd, index + 3)).join(" ");
+        const rangeMatch = window.match(/[\[(]?\s*([0-9OIlS,.]+(?:\.[0-9]+)?)\s*[-–—]\s*([0-9OIlS,.]+(?:\.[0-9]+)?)\s*[\])]?\s*%/);
+        let min = "", max = "";
+        if (rangeMatch) {
+            const low = decimalFromOcr(rangeMatch[1]), high = decimalFromOcr(rangeMatch[2]);
+            if (low > 0 && high >= low && high <= 100) {
+                min = String(low) + "%"; max = String(high) + "%";
+            }
+        }
+        details.push({ stat, value: "x" + value + "%", min, max });
+    }
+    return details;
+}
+
 function sequentialAffixes(lines, startIndex, stopPattern) {
     const details = [];
     const uncertain = [];
@@ -2528,6 +2531,17 @@ function parseDiabloItemText(rawText, slotKey) {
 
     const stopPattern = /\b(?:imprinted|aspect|empty socket|requires level|sell value|durability|tempers?|mark as junk|compare|drop|scroll)\b/i;
     const parsedAffixes = sequentialAffixes(affixLines, cursor, stopPattern);
+    recoverMultiplierAffixesBefore(lines, affixHardEnd).forEach(detail => {
+        const existing = parsedAffixes.details.find(item =>
+            String(item.stat).toLowerCase() === String(detail.stat).toLowerCase()
+        );
+        if (!existing && parsedAffixes.details.length < MAX_AFFIX_ROWS) parsedAffixes.details.push(detail);
+        else if (existing) {
+            if (!existing.value && detail.value) existing.value = detail.value;
+            if (!existing.min && detail.min) existing.min = detail.min;
+            if (!existing.max && detail.max) existing.max = detail.max;
+        }
+    });
     fields.affixDetails = parsedAffixes.details;
     fields.affixes = formatAffixDetails(fields.affixDetails);
     uncertain.push(...parsedAffixes.uncertain);
@@ -2905,11 +2919,23 @@ function mergeScreenshotExtractions(primary, enhanced) {
                         ? socketEffect.lineIndex
                         : (metadataIndex >= 0 ? metadataIndex : passLines.length)));
 
-            return sequentialAffixes(
+            const details = sequentialAffixes(
                 passLines.slice(0, hardEnd),
                 0,
                 combinedStopPattern
             ).details;
+            recoverMultiplierAffixesBefore(passLines, hardEnd).forEach(detail => {
+                const existing = details.find(item =>
+                    String(item.stat).toLowerCase() === String(detail.stat).toLowerCase()
+                );
+                if (!existing) details.push(detail);
+                else {
+                    if (!existing.value && detail.value) existing.value = detail.value;
+                    if (!existing.min && detail.min) existing.min = detail.min;
+                    if (!existing.max && detail.max) existing.max = detail.max;
+                }
+            });
+            return details;
         });
 
     rawAffixes.forEach(detail => {
