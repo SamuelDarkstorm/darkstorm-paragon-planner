@@ -532,6 +532,37 @@ function sameItemContinuationCheck(prefix, baseExtraction, continuationExtractio
     return { ok: conflicts.length === 0, conflicts };
 }
 
+function continuationPowerFragment(rawText) {
+    const lines = cleanedOcrLines(rawText);
+    const stop = /\b(?:properties lost when equipped|requires level|sell value|durability|tempers?)\b/i;
+
+    for (let start = 0; start < lines.length; start += 1) {
+        const collected = [];
+        for (let index = start; index < lines.length && collected.length < 8; index += 1) {
+            if (index > start && stop.test(lines[index])) break;
+            collected.push(lines[index]);
+        }
+        const text = collected.join(" ").replace(/\s+/g, " ").trim();
+        if (!/\b(?:vampiric\s+curse|army\s+of\s+the\s+dead|souls?|soul\s+unleashed)\b/i.test(text)) continue;
+
+        const range = decimalRangeFromLine(text);
+        if (!range) continue;
+        const percents = [...text.matchAll(/([0-9OIlS,.]+(?:\.[0-9]+)?)\s*%/gi)]
+            .map(match => decimalFromOcr(match[1]))
+            .filter(value => Number.isFinite(value) && value > 0);
+        const roll = percents.find(value => value >= range.low && value <= range.high) ?? 0;
+        if (!roll) continue;
+
+        return {
+            text,
+            roll: String(roll) + "%",
+            min: String(range.low) + "%",
+            max: String(range.high) + "%"
+        };
+    }
+    return null;
+}
+
 function mergeContinuationExtraction(prefix, extraction, ocrConfidence) {
     const current = getGear(prefix);
     const storedBase = prototypeState.baseScreenshotExtractions[prefix];
@@ -555,6 +586,21 @@ function mergeContinuationExtraction(prefix, extraction, ocrConfidence) {
             uncertain: [],
             rawText: ""
         };
+    const continuationFragment = continuationPowerFragment(extraction.rawText ?? "");
+    if (continuationFragment) {
+        const existingPower = currentExtraction.fields?.power ?? "";
+        const parsedContinuationPower = extraction.fields?.power ?? "";
+        extraction.fields.power = [existingPower, parsedContinuationPower, continuationFragment.text]
+            .filter(Boolean)
+            .filter((value, index, array) => array.indexOf(value) === index)
+            .join(" ")
+            .replace(/\s+/g, " ")
+            .trim();
+        extraction.fields.powerValue = extraction.fields.powerValue || continuationFragment.roll;
+        extraction.fields.powerMin = extraction.fields.powerMin || continuationFragment.min;
+        extraction.fields.powerMax = extraction.fields.powerMax || continuationFragment.max;
+    }
+
     const check = sameItemContinuationCheck(prefix, currentExtraction, extraction);
     const ui = screenshotElements(prefix);
 
@@ -1650,7 +1696,17 @@ function affixAnchors(lines, startIndex, stopPattern) {
                 value.charIndex < segmentEnd
             );
 
-            const chosen = preceding ?? inside ?? null;
+            let chosen = preceding ?? inside ?? null;
+            if (!chosen && /Multiplier/i.test(definition.stat)) {
+                const segment = line.slice(Math.max(0, definition.charIndex - 20), segmentEnd);
+                const match = segment.match(/[xX×]\s*([0-9OIlS,.]+(?:\.[0-9]+)?)\s*%/);
+                if (match) {
+                    chosen = {
+                        value: "x" + match[1] + "%",
+                        charIndex: Math.max(0, definition.charIndex - 20) + (match.index ?? 0)
+                    };
+                }
+            }
             anchors.push({
                 ...definition,
                 lineIndex,
@@ -1765,10 +1821,13 @@ function powerBlockFromLines(lines, affixEndIndex = 0) {
         for (let index = Math.max(affixEndIndex, 0); index < lines.length; index += 1) {
             if (metadataPattern.test(lines[index])) break;
             const window = lines.slice(index, Math.min(lines.length, index + 6)).join(" ");
-            if (
-                /\b(?:damage|increased|deals|makes|enemies|vulnerable|ground|desecrated|seconds?|summons?|vampiric|curse|corpse|souls?|army)\b/i.test(window) &&
-                /[0-9OIlS]+(?:\.[0-9OIlS]+)?\s*%(?:\s*\|?\s*\[x\])?/.test(window)
-            ) {
+            const hasPowerVocabulary =
+                /\b(?:damage|increased|deals|makes|enemies|vulnerable|ground|desecrated|seconds?|summons?|vampiric|curse|corpse|souls?|army)\b/i.test(window);
+            const hasPercentEvidence =
+                /[0-9OIlS]+(?:\.[0-9OIlS]+)?\s*%(?:\s*\|?\s*\[x\])?/.test(window);
+            const hasUniqueProse =
+                /\b(?:your\s+summons|vampiric\s+curse|consuming\s+a\s+corpse|only\s+army\s+of\s+the\s+dead)\b/i.test(window);
+            if (hasPowerVocabulary && (hasPercentEvidence || hasUniqueProse)) {
                 start = index;
                 break;
             }
@@ -1790,7 +1849,10 @@ function powerBlockFromLines(lines, affixEndIndex = 0) {
         .replace(/\s+/g, " ")
         .trim();
 
-    if (!powerLooksUsable(text)) return null;
+    const partialUniquePower =
+        /\b(?:your\s+summons|vampiric\s+curse|consuming\s+a\s+corpse|only\s+army\s+of\s+the\s+dead)\b/i.test(text) &&
+        text.length >= 35;
+    if (!powerLooksUsable(text) && !partialUniquePower) return null;
 
     const range = decimalRangeFromLine(text);
     const percents = [...text.matchAll(/([0-9OIlS,.]+(?:\.[0-9]+)?)\s*%/gi)]
