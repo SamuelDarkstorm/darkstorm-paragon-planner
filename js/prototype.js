@@ -1379,9 +1379,14 @@ const OCR_ITEM_TYPES = [
 ];
 
 function exactItemTypeFromText(text) {
-    const normalized = String(text ?? "").toLowerCase();
-    const match = OCR_ITEM_TYPES.find(([needle]) => normalized.includes(needle));
-    return match?.[1] ?? "";
+    const normalized = String(text ?? "")
+        .toLowerCase()
+        .replace(/[–—]/g, "-")
+        .replace(/\s+/g, " ");
+    const matches = OCR_ITEM_TYPES
+        .filter(([needle]) => normalized.includes(needle))
+        .sort((a, b) => b[0].length - a[0].length);
+    return matches[0]?.[1] ?? "";
 }
 
 function recoverItemIdentityFromRawPasses(rawPasses = []) {
@@ -1456,7 +1461,9 @@ function parseItemName(lines, rarityIndex) {
     const windowStart = Math.max(0, rarityIndex - 3);
 
     for (let index = windowStart; index < rarityIndex; index += 1) {
-        const line = lines[index].trim();
+        const line = lines[index].trim()
+            .replace(/[Ø@]/g, "O")
+            .replace(/\s+/g, " ");
         if (!line || blacklist.test(line)) continue;
         if (/\d|%|\[|\]|:|[{}<>|]/.test(line)) continue;
 
@@ -2301,10 +2308,12 @@ function parseDiabloItemText(rawText, slotKey) {
     if (explicitPowerIndex < 0) {
         inferredPowerIndex = lines.findIndex((line, index) => {
             if (index < cursor) return false;
+            const current = String(line ?? "");
+            const actionStart = /\b(?:when\s+you|your\s+summons|a\s+dark\s+aura|consuming\s+a\s+corpse|only\s+army)\b/i.test(current);
+            if (!actionStart) return false;
             const window = lines.slice(index, Math.min(lines.length, index + 5)).join(" ");
-            const actionProse = /\b(?:when\s+you|your\s+summons|a\s+dark\s+aura|consuming\s+a\s+corpse|only\s+army)\b/i.test(window);
             const powerLanguage = /\b(?:trigger|increased\s+damage|vampiric\s+curse|decrepify|iron\s+maiden|thorns\s+attack|souls?)\b/i.test(window);
-            return actionProse && powerLanguage;
+            return powerLanguage;
         });
     }
 
@@ -2349,7 +2358,36 @@ function parseDiabloItemText(rawText, slotKey) {
         : (uniquePowerIndex >= 0
             ? uniquePowerIndex
             : (inferredPowerIndex >= 0 ? inferredPowerIndex : finalAffixLine + 1));
-    const powerBlock = powerBlockFromLines(lines, powerSearchStart);
+    let powerBlock = null;
+    if (powerSearchStart >= 0 && (explicitPowerIndex >= 0 || uniquePowerIndex >= 0 || inferredPowerIndex >= 0)) {
+        const metadataPattern = /\b(?:empty socket|requires level|sell value|durability|equip|compare|mark as junk|drop|scroll|tempers?|properties lost when equipped)\b/i;
+        const blockLines = [];
+        for (let index = powerSearchStart; index < lines.length && blockLines.length < 10; index += 1) {
+            if (index > powerSearchStart && metadataPattern.test(lines[index])) break;
+            blockLines.push(lines[index]);
+        }
+        const text = cleanPowerText(
+            blockLines.join(" ").replace(/^.*?\b(?:imprinted|aspect)\b\s*:?\s*/i, "")
+        );
+        if (powerLooksUsable(text) || text.length >= 30) {
+            const range = decimalRangeFromLine(text);
+            const percents = [...text.matchAll(/([0-9OIlS,.]+(?:\.[0-9]+)?)\s*%/gi)]
+                .map(match => decimalFromOcr(match[1]))
+                .filter(value => Number.isFinite(value) && value > 0);
+            const roll = range
+                ? (percents.find(value => value >= range.low && value <= range.high) ?? 0)
+                : 0;
+            powerBlock = {
+                text,
+                roll: roll ? String(roll) + "%" : "",
+                min: range ? String(range.low) + "%" : "",
+                max: range ? String(range.high) + "%" : ""
+            };
+        }
+    }
+    if (!powerBlock) {
+        powerBlock = powerBlockFromLines(lines, powerSearchStart);
+    }
 
     if (powerBlock) {
         fields.power = powerBlock.text;
@@ -2790,8 +2828,13 @@ function mergeScreenshotExtractions(primary, enhanced) {
             })
             .filter(Boolean)
             .sort((a, b) => {
-                const aScore = (a.roll ? 4 : 0) + (a.min && a.max ? 3 : 0) + Math.min(a.text.length / 100, 2);
-                const bScore = (b.roll ? 4 : 0) + (b.min && b.max ? 3 : 0) + Math.min(b.text.length / 100, 2);
+                const score = candidate => {
+                    const actionStart = /\b(?:when\s+you|your\s+summons|a\s+dark\s+aura|consuming\s+a\s+corpse|only\s+army|cold\s+damage|your\s+desecrated)\b/i.test(candidate.text);
+                    return (actionStart ? 8 : 0) + (candidate.roll ? 4 : 0) +
+                        (candidate.min && candidate.max ? 3 : 0) + Math.min(candidate.text.length / 100, 2);
+                };
+                const aScore = score(a);
+                const bScore = score(b);
                 return bScore - aScore;
             });
 
