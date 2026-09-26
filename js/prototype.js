@@ -1517,6 +1517,28 @@ function parseItemName(lines, rarityIndex) {
     };
 }
 
+function recoverHeaderIdentityNearItemPower(lines) {
+    const powerIndex = lines.findIndex(line => /\bitem\s+power\b/i.test(line));
+    if (powerIndex < 1) return { name: "", rarity: "", itemType: "" };
+    const header = lines.slice(Math.max(0, powerIndex - 8), powerIndex);
+    const headerText = header.join(" ");
+    const rarityMatch = headerText.match(/\b(Legendary|Unique|Rare|Magic)\b/i);
+    const rarity = rarityMatch ? rarityMatch[1][0].toUpperCase() + rarityMatch[1].slice(1).toLowerCase() : "";
+    const itemType = exactItemTypeFromText(headerText);
+    const ri = header.findIndex(line => /\b(?:legendary|unique|rare|magic)\b/i.test(line));
+    if (ri <= 0) return { name: "", rarity, itemType };
+    const title = [];
+    for (let i = ri - 1; i >= 0 && title.length < 4; i -= 1) {
+        const line = header[i].replace(/[Ø@]/g, "O").replace(/^[^A-Za-z]+|[^A-Za-z'’& -]+$/g, "").replace(/\s+/g, " ").trim();
+        if (!line || /\b(?:equipped|item selected|character|inventory|compare)\b/i.test(line)) break;
+        if ((line.match(/[A-Za-z]/g) ?? []).length < 3) break;
+        title.unshift(line);
+    }
+    const name = title.join(" ").trim();
+    const words = name.split(/\s+/).filter(Boolean);
+    return { name: name.length >= 3 && name.length <= 72 && words.length <= 9 ? name : "", rarity, itemType };
+}
+
 function findLineWith(lines, pattern, startIndex = 0, maxDistance = Infinity) {
     const endIndex = Math.min(lines.length, startIndex + maxDistance + 1);
 
@@ -2192,6 +2214,7 @@ function parseDiabloItemText(rawText, slotKey) {
     const inferred = [];
     const rejected = [];
     const uncertain = [];
+    const headerFallback = recoverHeaderIdentityNearItemPower(lines);
 
     let rarityIndex = lines.findIndex(line =>
         /\b(?:legendary|unique|rare|magic)\b/i.test(line) &&
@@ -2228,6 +2251,23 @@ function parseDiabloItemText(rawText, slotKey) {
         } else {
             uncertain.push("Name");
         }
+    }
+
+    if (!fields.rarity && headerFallback.rarity) {
+        fields.rarity = headerFallback.rarity;
+        detected.push("Rarity");
+    }
+    if ((!fields.itemType || fields.itemType === "Sword") && headerFallback.itemType) {
+        fields.itemType = headerFallback.itemType;
+        detected.push("Item type");
+        const rejectedIndex = rejected.indexOf("Item type");
+        if (rejectedIndex >= 0) rejected.splice(rejectedIndex, 1);
+    }
+    if (!fields.name && headerFallback.name) {
+        fields.name = headerFallback.name;
+        detected.push("Name");
+        const uncertainIndex = uncertain.indexOf("Name");
+        if (uncertainIndex >= 0) uncertain.splice(uncertainIndex, 1);
     }
 
     if (!fields.itemType) rejected.push("Item type");
