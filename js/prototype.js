@@ -2381,8 +2381,24 @@ function sequentialAffixes(lines, startIndex, stopPattern) {
             }
         }
 
-        const numeric = decimalFromOcr(anchor.value);
-        const valueValid = Boolean(anchor.value) &&
+        let numeric = decimalFromOcr(anchor.value);
+        let displayValue = anchor.value;
+
+        // A second OCR pass can add a stray leading digit to a percentage
+        // (7.4% -> 17.4%). If the visible roll range proves that dropping that
+        // one leading digit produces a valid value, repair only that narrow case.
+        if (anchor.percent && range && numeric > range.high) {
+            const unsigned = String(anchor.value ?? "").replace(/^[+-]/, "").replace("%", "");
+            if (/^[0-9][0-9]\.[0-9]+$/.test(unsigned)) {
+                const candidate = decimalFromOcr(unsigned.slice(1));
+                if (candidate >= range.low && candidate <= range.high) {
+                    numeric = candidate;
+                    displayValue = (String(anchor.value).trim().startsWith("-") ? "-" : "+") + candidate + "%";
+                }
+            }
+        }
+
+        const valueValid = Boolean(displayValue) &&
             numeric > 0 &&
             (!range || (numeric >= range.low && numeric <= range.high));
 
@@ -2398,9 +2414,9 @@ function sequentialAffixes(lines, startIndex, stopPattern) {
         details.push({
             stat: anchor.stat,
             value: valueValid ? (
-                anchor.percent && !anchor.value.includes("%")
-                    ? anchor.value + "%"
-                    : anchor.value
+                anchor.percent && !displayValue.includes("%")
+                    ? displayValue + "%"
+                    : displayValue
             ) : "",
             min: range ? String(range.low) + percentSuffix : "",
             max: range ? String(range.high) + percentSuffix : ""
