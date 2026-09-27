@@ -4004,6 +4004,9 @@ function equipCandidate() {
     prototypeState.loadoutExtractions[slotKey] = null;
     prototypeState.loadoutVerified[slotKey] = candidateWasVerified;
     prototypeState.candidateEquipped = true;
+    prototypeState.feedbackResult = null;
+    el.feedbackNotes.value = "";
+    updateFeedbackUI();
     document.getElementById("gearVerdict").textContent = "EQUIPPED";
     document.getElementById("gearReason").textContent =
         `${itemDisplayName(candidate, "Item B")} is now saved as the equipped ${comparisonSlotLabel(slotKey).toLowerCase()} for the next Darkstorm analysis.`;
@@ -4027,6 +4030,18 @@ function recommendationFor(character) {
             whyNot: "Do not stack another major change yet; that would make it harder to identify the cause.",
             changes: "If a repeat test shows the problem was unrelated to the change, this recommendation can be revised.",
             confidence: 90
+        };
+    }
+
+    if (feedback === "same") {
+        return {
+            title: "Keep the test controlled and change one variable.",
+            summary: "The last play test produced no noticeable change, so Darkstorm should not treat that hypothesis as confirmed.",
+            why: "A neutral result is still evidence: the tested change did not clearly solve the reported problem.",
+            whyNow: "Moving to one different controlled variable preserves what was learned without stacking changes.",
+            whyNot: "Repeating broad changes on top of a neutral result would make the next outcome harder to interpret.",
+            changes: "If a repeat run shows a clear improvement or regression, that stronger player evidence takes priority.",
+            confidence: 78
         };
     }
 
