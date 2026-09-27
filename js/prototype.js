@@ -1619,7 +1619,22 @@ function normalizedItemName(value) {
 }
 
 function parseItemName(lines, rarityIndex) {
-    if (rarityIndex <= 0) {
+    if (rarityIndex < 0) {
+        return { value: "", confident: false };
+    }
+
+    // Tesseract can collapse the wrapped item title and rarity onto one line.
+    const rarityLine = String(lines[rarityIndex] ?? "");
+    const inlineRarity = rarityLine.match(/\b(?:Legendary|Unique|Rare|Magic)\b/i);
+    if (inlineRarity?.index > 0) {
+        const inlineTitle = cleanDiabloTitleLine(rarityLine.slice(0, inlineRarity.index));
+        const words = inlineTitle.split(/\s+/).filter(Boolean);
+        if (inlineTitle.length >= 3 && inlineTitle.length <= 64 && words.length <= 8 && /^[A-Za-z][A-Za-z'’& -]+$/.test(inlineTitle)) {
+            return { value: inlineTitle, confident: true };
+        }
+    }
+
+    if (rarityIndex === 0) {
         return { value: "", confident: false };
     }
 
