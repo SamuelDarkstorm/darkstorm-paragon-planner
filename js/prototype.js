@@ -9,6 +9,7 @@ const prototypeState = {
     lastGearComparison: null,
     candidateEquipped: false,
     activeTest: null,
+    testAwaitingFeedback: false,
     screenshots: {
         equipped: null,
         candidate: null
@@ -3620,7 +3621,8 @@ function populateForm(character) {
         typeof savedActiveTest.itemName === "string"
             ? { ...savedActiveTest }
             : null;
-    prototypeState.candidateEquipped = prototypeState.activeTest?.type === "gear-swap";
+    prototypeState.candidateEquipped = false;
+    prototypeState.testAwaitingFeedback = Boolean(prototypeState.activeTest && !prototypeState.feedbackResult);
 
     // Older v0.3 saves may contain feedback without test provenance. Keep the
     // note/result visible, but do not let it drive a recommendation as if the
@@ -3888,7 +3890,7 @@ function scoreGear(item, goal, character) {
 }
 
 function compareGear() {
-    if (prototypeState.activeTest && !prototypeState.feedbackResult) {
+    if (prototypeState.testAwaitingFeedback) {
         document.getElementById("gearVerdict").textContent = "TEST IN PROGRESS";
         document.getElementById("gearReason").textContent =
             "Finish the active controlled test and record Better, No change, or Worse before starting another gear comparison.";
@@ -4035,6 +4037,7 @@ function equipCandidate() {
         slotLabel: comparisonSlotLabel(slotKey),
         itemName: itemDisplayName(candidate, "Item B")
     };
+    prototypeState.testAwaitingFeedback = true;
     prototypeState.feedbackResult = null;
     el.feedbackNotes.value = "";
     updateFeedbackUI();
@@ -4472,7 +4475,7 @@ SCREENSHOT_PREFIXES.forEach(prefix => {
 
 document.querySelectorAll("[data-feedback]").forEach(button => {
     button.addEventListener("click", () => {
-        if (!prototypeState.activeTest) {
+        if (!prototypeState.testAwaitingFeedback || !prototypeState.activeTest) {
             document.getElementById("feedbackStatus").textContent =
                 "No active controlled test · equip a recommended Item B first";
             return;
@@ -4484,7 +4487,7 @@ document.querySelectorAll("[data-feedback]").forEach(button => {
 });
 
 document.getElementById("applyFeedbackButton").addEventListener("click", () => {
-    if (!prototypeState.activeTest) {
+    if (!prototypeState.testAwaitingFeedback || !prototypeState.activeTest) {
         document.getElementById("feedbackStatus").textContent =
             "No active controlled test · equip a recommended Item B first";
         return;
@@ -4495,7 +4498,7 @@ document.getElementById("applyFeedbackButton").addEventListener("click", () => {
         return;
     }
     analyzeBuild();
-    prototypeState.activeTest = null;
+    prototypeState.testAwaitingFeedback = false;
     prototypeState.candidateEquipped = false;
     markUnsaved();
 });
