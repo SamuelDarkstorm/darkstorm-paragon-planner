@@ -3534,6 +3534,7 @@ function getCharacterFromForm() {
         },
         gear: {
             loadout: getLoadoutFromForm(),
+            loadoutVerified: { ...prototypeState.loadoutVerified },
             comparisonSlot: el.comparisonSlot.value,
             equipped: getGear("equipped"),
             candidate: getGear("candidate")
@@ -3595,6 +3596,8 @@ function populateForm(character) {
     }
 
     setLoadout(loadout);
+    prototypeState.loadoutVerified = { ...(character.gear?.loadoutVerified ?? {}) };
+    updateLoadoutIntelligence();
     el.comparisonSlot.value = character.gear?.comparisonSlot ?? "chest";
     const selectedEquipped = loadout[el.comparisonSlot.value] ?? {};
     setGear("equipped", character.gear?.equipped ?? selectedEquipped);
@@ -4207,6 +4210,8 @@ function importPrototype(file) {
 
 function resetPrototype() {
     localStorage.removeItem(STORAGE_KEY);
+    prototypeState.loadoutVerified = {};
+    prototypeState.loadoutExtractions = {};
     populateForm({
         profile: {
             name: "",
