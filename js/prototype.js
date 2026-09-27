@@ -8,6 +8,7 @@ const prototypeState = {
     feedbackResult: null,
     lastGearComparison: null,
     candidateEquipped: false,
+    activeTest: null,
     screenshots: {
         equipped: null,
         candidate: null
@@ -3611,6 +3612,7 @@ function populateForm(character) {
     el.feedbackNotes.value = character.feedback?.notes ?? "";
     prototypeState.lastGearComparison = null;
     prototypeState.candidateEquipped = false;
+    prototypeState.activeTest = null;
 
     updateFeedbackUI();
     resetGearVerdict();
@@ -4004,6 +4006,12 @@ function equipCandidate() {
     prototypeState.loadoutExtractions[slotKey] = null;
     prototypeState.loadoutVerified[slotKey] = candidateWasVerified;
     prototypeState.candidateEquipped = true;
+    prototypeState.activeTest = {
+        type: "gear-swap",
+        slotKey,
+        slotLabel: comparisonSlotLabel(slotKey),
+        itemName: itemDisplayName(candidate, "Item B")
+    };
     prototypeState.feedbackResult = null;
     el.feedbackNotes.value = "";
     updateFeedbackUI();
@@ -4021,7 +4029,7 @@ function recommendationFor(character) {
     const gearComparison = prototypeState.lastGearComparison;
     const identity = buildIdentityFor(character);
 
-    if (feedback === "worse") {
+    if (feedback === "worse" && prototypeState.activeTest) {
         return {
             title: "Revert the last change and reassess.",
             summary: "The player's test result outweighs the prototype's earlier assumption.",
@@ -4033,7 +4041,7 @@ function recommendationFor(character) {
         };
     }
 
-    if (feedback === "same") {
+    if (feedback === "same" && prototypeState.activeTest) {
         return {
             title: "Keep the test controlled and change one variable.",
             summary: "The last play test produced no noticeable change, so Darkstorm should not treat that hypothesis as confirmed.",
@@ -4045,7 +4053,7 @@ function recommendationFor(character) {
         };
     }
 
-    if (feedback === "better" && prototypeState.candidateEquipped) {
+    if (feedback === "better" && prototypeState.activeTest?.type === "gear-swap") {
         return {
             title: "Keep the gear change and reassess the build.",
             summary: "The gear test produced a positive result, so Darkstorm can reassess the character before proposing another change.",
@@ -4437,6 +4445,11 @@ SCREENSHOT_PREFIXES.forEach(prefix => {
 
 document.querySelectorAll("[data-feedback]").forEach(button => {
     button.addEventListener("click", () => {
+        if (!prototypeState.activeTest) {
+            document.getElementById("feedbackStatus").textContent =
+                "No active controlled test · equip a recommended Item B first";
+            return;
+        }
         prototypeState.feedbackResult = button.dataset.feedback;
         updateFeedbackUI();
         markUnsaved();
