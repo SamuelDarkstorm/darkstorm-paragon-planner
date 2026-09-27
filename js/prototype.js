@@ -3612,7 +3612,14 @@ function populateForm(character) {
     prototypeState.feedbackResult = character.feedback?.result ?? null;
     el.feedbackNotes.value = character.feedback?.notes ?? "";
     prototypeState.lastGearComparison = null;
-    prototypeState.activeTest = character.feedback?.activeTest ?? null;
+    const savedActiveTest = character.feedback?.activeTest;
+    prototypeState.activeTest =
+        savedActiveTest?.type === "gear-swap" &&
+        typeof savedActiveTest.slotKey === "string" &&
+        typeof savedActiveTest.slotLabel === "string" &&
+        typeof savedActiveTest.itemName === "string"
+            ? { ...savedActiveTest }
+            : null;
     prototypeState.candidateEquipped = prototypeState.activeTest?.type === "gear-swap";
 
     // Older v0.3 saves may contain feedback without test provenance. Keep the
@@ -4469,6 +4476,16 @@ document.querySelectorAll("[data-feedback]").forEach(button => {
 });
 
 document.getElementById("applyFeedbackButton").addEventListener("click", () => {
+    if (!prototypeState.activeTest) {
+        document.getElementById("feedbackStatus").textContent =
+            "No active controlled test · equip a recommended Item B first";
+        return;
+    }
+    if (!prototypeState.feedbackResult) {
+        document.getElementById("feedbackStatus").textContent =
+            "Choose Better, No change, or Worse before applying feedback";
+        return;
+    }
     analyzeBuild();
     markUnsaved();
 });
