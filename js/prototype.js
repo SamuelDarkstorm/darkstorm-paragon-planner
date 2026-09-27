@@ -382,6 +382,7 @@ function getLoadoutItem(slotKey) {
             : input.value.trim();
     });
 
+    item.affixDetails = affixDetailsFromLegacyText(item.affixes);
     return item;
 }
 
@@ -393,6 +394,9 @@ function getLoadoutFromForm() {
 
 function setLoadoutItem(slotKey, item = {}) {
     const normalized = { ...emptyLoadoutItem(), ...item };
+    if (Array.isArray(item?.affixDetails) && item.affixDetails.length) {
+        normalized.affixes = formatAffixDetails(item.affixDetails);
+    }
 
     LOADOUT_FIELDS.forEach(field => {
         const input = document.getElementById(loadoutFieldId(slotKey, field.key));
