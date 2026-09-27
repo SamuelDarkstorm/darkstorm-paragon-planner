@@ -3395,9 +3395,12 @@ async function createEnhancedOcrSource(file) {
     const bitmap = await createImageBitmap(file);
 
     try {
-        const cropWidth = Math.max(1, Math.floor(bitmap.width * 0.86));
-        const cropHeight = Math.max(1, Math.floor(bitmap.height * 0.92));
-        const scale = Math.min(2, Math.max(1.35, 2200 / cropWidth));
+        // Diablo item screenshots usually place the tooltip on the left while
+        // inventory art/UI occupies the right. Trim that noisy side and the
+        // bottom controller prompts before enlarging the text for OCR.
+        const cropWidth = Math.max(1, Math.floor(bitmap.width * 0.72));
+        const cropHeight = Math.max(1, Math.floor(bitmap.height * 0.88));
+        const scale = Math.min(2.5, Math.max(1.6, 2400 / cropWidth));
 
         const canvas = document.createElement("canvas");
         canvas.width = Math.floor(cropWidth * scale);
@@ -3422,14 +3425,18 @@ async function createEnhancedOcrSource(file) {
                 (pixels[index + 2] * 0.114);
 
             const inverted = 255 - luminance;
+            // A slightly stronger text/background separation reduces the
+            // decorative brown tooltip texture without turning thin glyphs into
+            // solid blobs.
             const contrasted = Math.max(
                 0,
-                Math.min(255, ((inverted - 128) * 1.55) + 128)
+                Math.min(255, ((inverted - 128) * 1.75) + 128)
             );
+            const cleaned = contrasted < 42 ? 0 : (contrasted > 218 ? 255 : contrasted);
 
-            pixels[index] = contrasted;
-            pixels[index + 1] = contrasted;
-            pixels[index + 2] = contrasted;
+            pixels[index] = cleaned;
+            pixels[index + 1] = cleaned;
+            pixels[index + 2] = cleaned;
         }
 
         context.putImageData(imageData, 0, 0);
