@@ -3546,7 +3546,8 @@ function getCharacterFromForm() {
         feedback: {
             result: prototypeState.feedbackResult,
             notes: el.feedbackNotes.value.trim(),
-            activeTest: prototypeState.activeTest ? { ...prototypeState.activeTest } : null
+            activeTest: prototypeState.activeTest ? { ...prototypeState.activeTest } : null,
+            testAwaitingFeedback: prototypeState.testAwaitingFeedback
         }
     };
 }
@@ -3622,7 +3623,10 @@ function populateForm(character) {
             ? { ...savedActiveTest }
             : null;
     prototypeState.candidateEquipped = false;
-    prototypeState.testAwaitingFeedback = Boolean(prototypeState.activeTest && !prototypeState.feedbackResult);
+    prototypeState.testAwaitingFeedback = Boolean(
+        prototypeState.activeTest &&
+        (character.feedback?.testAwaitingFeedback ?? !prototypeState.feedbackResult)
+    );
 
     // Older v0.3 saves may contain feedback without test provenance. Keep the
     // note/result visible, but do not let it drive a recommendation as if the
