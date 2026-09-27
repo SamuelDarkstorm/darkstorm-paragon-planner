@@ -540,6 +540,21 @@ function loadoutIntelligenceFor(character) {
     }
 
     const identity = buildIdentityFor(character);
+    const unverified = filled.filter(({ slot }) => !prototypeState.loadoutVerified[slot.key]);
+    const verifiedLabel = verifiedScans === 1 ? "1 slot is" : verifiedScans + " slots are";
+
+    if (coverage === EQUIPMENT_SLOTS.length && unverified.length) {
+        return {
+            title: "Keep the current recorded gear stable and verify the loadout.",
+            summary: coverage + " of " + EQUIPMENT_SLOTS.length + " equipment slots contain data, but only " + verifiedLabel + " verified from player-reviewed equipment evidence. No obvious low-risk gear action is visible yet.",
+            why: "Darkstorm can use the full recorded loadout for context, but it should not treat demo or otherwise unverified slot data as equal to player-confirmed equipment.",
+            whyNow: "The loadout is already complete. The useful next step is improving evidence quality, not asking the player to fill slots that already contain data.",
+            whyNot: "A generic score or unverified demo item is not enough to justify replacing a functioning item, especially for " + identity.label.toLowerCase() + " and the current " + goal + " goal.",
+            changes: "Verify another equipped slot, compare a real candidate, or record a play-test result. Each confirmed slot can raise Darkstorm's confidence.",
+            confidence
+        };
+    }
+
     return {
         title: "Keep the current recorded gear stable and fill the remaining loadout.",
         summary: coverage + " of " + EQUIPMENT_SLOTS.length + " equipment slots contain data. No obvious low-risk gear action is visible yet.",
