@@ -491,17 +491,11 @@ function loadoutIntelligenceFor(character) {
     const actionable = [];
 
     filled.forEach(({ slot, item }) => {
-        const temper = parseTemperUsage(item.tempers);
-        if (temper && temper.used < temper.total) {
-            const remaining = temper.total - temper.used;
+        const temperText = String(item.tempers ?? "");
+        if (/\b(?:available|remaining|open temper|temper slot open)\b/i.test(temperText)) {
             actionable.push({ priority: 100, slot, item,
-                reason: remaining + " temper attempt" + (remaining === 1 ? "" : "s") + " still available",
-                action: "Review the remaining temper opportunity on " + slot.label + "." });
-        }
-        if (item.sockets > 0 && !String(item.socketContents ?? "").trim()) {
-            actionable.push({ priority: 92, slot, item,
-                reason: item.sockets + " socket" + (item.sockets === 1 ? "" : "s") + " recorded without socket contents",
-                action: "Fill or verify the socket" + (item.sockets === 1 ? "" : "s") + " on " + slot.label + "." });
+                reason: "the recorded temper notes explicitly show an available temper opportunity",
+                action: "Review the available temper opportunity on " + slot.label + "." });
         }
         if (level >= 70 && item.itemPower > 0 && item.itemPower < 700) {
             actionable.push({ priority: 78, slot, item,
@@ -523,7 +517,8 @@ function loadoutIntelligenceFor(character) {
 
     const chosen = actionable.sort((a, b) => b.priority - a.priority)[0];
     const coverage = filled.length;
-    const confidence = Math.min(88, 46 + coverage * 4);
+    const verifiedScans = filled.filter(({ slot }) => prototypeState.loadoutVerified[slot.key]).length;
+    const confidence = Math.min(88, 46 + coverage * 3 + verifiedScans * 2);
 
     if (chosen) {
         const itemName = chosen.item.name || [chosen.item.rarity, chosen.item.itemType].filter(Boolean).join(" ") || chosen.slot.label;
@@ -542,7 +537,7 @@ function loadoutIntelligenceFor(character) {
     return {
         title: "Keep the current recorded gear stable and fill the remaining loadout.",
         summary: coverage + " of " + EQUIPMENT_SLOTS.length + " equipment slots contain data. No obvious low-risk gear action is visible yet.",
-        why: "The recorded items do not expose an unfinished temper, empty recorded socket, clearly low item-power outlier, or bottom-quartile visible power roll.",
+        why: "The recorded items do not expose an explicitly available temper, clearly low item-power outlier, or bottom-quartile visible power roll.",
         whyNow: "More complete loadout coverage gives Darkstorm better evidence before it recommends replacing a functioning item.",
         whyNot: "A generic score alone is not enough to justify a swap, especially for " + identity.label.toLowerCase() + " and the current " + goal + " goal.",
         changes: "Add and verify more equipped slots, compare a real candidate, or record a play-test result.",
