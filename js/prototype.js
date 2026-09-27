@@ -4032,8 +4032,12 @@ function recommendationFor(character) {
         !loadoutDecision.title.startsWith("Keep the current recorded gear stable") &&
         !loadoutDecision.title.startsWith("Add equipped gear") &&
         !loadoutDecision.title.startsWith("Verify scanned equipment");
+    const loadoutActionMatchesProblem =
+        problem === "unsure" ||
+        (problem === "survivability" && /life|armor|resist|defen|surviv|fortify/i.test(loadoutDecision.summary + " " + loadoutDecision.title)) ||
+        ((problem === "damage" || problem === "clear-speed") && /damage|power roll|weapon|intelligence|minion|multiplier/i.test(loadoutDecision.summary + " " + loadoutDecision.title));
 
-    if (loadoutHasConcreteAction) {
+    if (loadoutHasConcreteAction && loadoutActionMatchesProblem) {
         return {
             title: loadoutDecision.title,
             summary: loadoutDecision.summary,
