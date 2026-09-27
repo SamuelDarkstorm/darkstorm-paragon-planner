@@ -3888,6 +3888,14 @@ function scoreGear(item, goal, character) {
 }
 
 function compareGear() {
+    if (prototypeState.activeTest && !prototypeState.feedbackResult) {
+        document.getElementById("gearVerdict").textContent = "TEST IN PROGRESS";
+        document.getElementById("gearReason").textContent =
+            "Finish the active controlled test and record Better, No change, or Worse before starting another gear comparison.";
+        document.getElementById("equipCandidateButton").disabled = true;
+        return null;
+    }
+
     const mismatch = updateGearSlotMismatchUI();
     const confirmation = confirmationBlockingState();
 
@@ -4487,6 +4495,8 @@ document.getElementById("applyFeedbackButton").addEventListener("click", () => {
         return;
     }
     analyzeBuild();
+    prototypeState.activeTest = null;
+    prototypeState.candidateEquipped = false;
     markUnsaved();
 });
 
