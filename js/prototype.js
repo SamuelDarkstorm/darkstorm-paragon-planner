@@ -1615,7 +1615,7 @@ function parseItemName(lines, rarityIndex) {
     // Item names are much noisier than numeric stats. Stay conservative:
     // only inspect the lines immediately above the rarity/type line and
     // prefer a blank field over combining unrelated UI text into a fake name.
-    const blacklist = /(?:equipped|character|stats|materials|no title|weapon damage|toughness|strength|intelligence|willpower|dexterity|equipment|dungeon keys|slot transmog|hide transmog|mark as favorite|primal|ancestral|sacred|legendary|unique|rare|magic|item power|armor|damage per second)/i;
+    const blacklist = /(?:equipped|character|stats|materials|no title|weapon damage|toughness|strength|intelligence|willpower|dexterity|equipment|dungeon keys|slot transmog|hide transmog|mark as favorite|legendary|unique|rare|magic|item power|armor|damage per second)/i;
     const candidates = [];
     const windowStart = Math.max(0, rarityIndex - 3);
 
@@ -2760,6 +2760,19 @@ function parseDiabloItemText(rawText, slotKey) {
         powerBlock = powerBlockFromLines(lines, powerSearchStart);
     }
 
+    // Biting Cold is a common legendary power whose leading words can survive
+    // OCR even when the visual Aspect label disappears. Recover the block from
+    // the distinctive "Cold damage is increased" sentence rather than leaving
+    // a readable power blank.
+    if (!powerBlock) {
+        const bitingColdIndex = lines.findIndex((line, index) =>
+            index >= cursor && /\bcold\s+damage\s+is\s+increased\b/i.test(line)
+        );
+        if (bitingColdIndex >= 0) {
+            powerBlock = powerBlockFromLines(lines, bitingColdIndex);
+        }
+    }
+
     if (powerBlock) {
         fields.power = powerBlock.text;
         fields.powerValue = powerBlock.roll;
@@ -2794,7 +2807,10 @@ function parseDiabloItemText(rawText, slotKey) {
         }
     }
 
-    const socketMatches = joined.match(/\bEmpty\s+Socket\b/gi) ?? [];
+    // OCR frequently drops the leading E in Diablo's "Empty Socket" line.
+    // Accept only close empty-socket variants so ordinary socket prose cannot
+    // create a phantom socket.
+    const socketMatches = joined.match(/\b(?:Empty|Mpty|Emptv|Empt)\s+Socket\b/gi) ?? [];
     if (socketMatches.length) {
         fields.sockets = Math.min(2, socketMatches.length);
         fields.socketContents = Array(fields.sockets).fill("Empty").join(", ");
