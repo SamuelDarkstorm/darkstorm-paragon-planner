@@ -1752,8 +1752,25 @@ function recoverHeaderIdentityNearItemPower(lines) {
            !/^(?:OF|THE|AND)$/.test(titleWords[titleWords.length - 1])) titleWords.pop();
     name = titleWords.join(" ");
     const wordCount = titleWords.length;
+
+    // If OCR preserved a clean title immediately above the rarity but lost
+    // enough letters to make the assembled title unusable, prefer that local
+    // title evidence rather than returning blank. Do not invent missing words.
+    if (!name && rarityLocal > 0) {
+        const nearby = header
+            .slice(Math.max(0, rarityLocal - 3), rarityLocal)
+            .map(cleanDiabloTitleLine)
+            .filter(line =>
+                line &&
+                !/\b(?:equipped|item selected|character|inventory|compare)\b/i.test(line) &&
+                /^[A-Za-z][A-Za-z'’& -]{2,64}$/.test(line)
+            );
+        name = nearby.join(" ").trim();
+        titleWords = name.split(/\s+/).filter(Boolean);
+    }
+
     return {
-        name: name.length >= 3 && name.length <= 72 && wordCount <= 9 ? name : "",
+        name: name.length >= 3 && name.length <= 72 && titleWords.length <= 9 ? name : "",
         rarity,
         itemType
     };
@@ -2347,8 +2364,10 @@ function sequentialAffixes(lines, startIndex, stopPattern) {
         // range to an affix. OCR can miss the value/row boundary and expose a
         // later legendary-power range; keep the whole affix uncertain instead
         // of displaying a confidently wrong roll range.
-        if (!valueValid) range = null;
-
+        // Keep a trustworthy visible range even when OCR mangles the roll
+        // itself. The range is useful gamer-review evidence and lets the UI
+        // show "value unknown" instead of confidently preserving an impossible
+        // number such as -11% against a visible [7% - 11%] range.
         const percentSuffix = anchor.percent ? "%" : "";
         details.push({
             stat: anchor.stat,
@@ -2807,10 +2826,13 @@ function parseDiabloItemText(rawText, slotKey) {
         }
     }
 
-    // OCR frequently drops the leading E in Diablo's "Empty Socket" line.
-    // Accept only close empty-socket variants so ordinary socket prose cannot
-    // create a phantom socket.
-    const socketMatches = joined.match(/\b(?:Empty|Mpty|Emptv|Empt)\s+Socket\b/gi) ?? [];
+    // OCR frequently damages the short "Empty Socket" label. Accept a small
+    // family of close variants, including a dropped first word, but only in
+    // metadata-shaped lines so ordinary socket prose cannot create a phantom.
+    const socketMatches = lines.filter(line =>
+        /\b(?:Empty|Mpty|Emptv|Empt)\s+Socket\b/i.test(line) ||
+        /^\W*Socket\W*$/i.test(line)
+    );
     if (socketMatches.length) {
         fields.sockets = Math.min(2, socketMatches.length);
         fields.socketContents = Array(fields.sockets).fill("Empty").join(", ");
