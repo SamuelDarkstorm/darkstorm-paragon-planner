@@ -3544,7 +3544,8 @@ function getCharacterFromForm() {
         },
         feedback: {
             result: prototypeState.feedbackResult,
-            notes: el.feedbackNotes.value.trim()
+            notes: el.feedbackNotes.value.trim(),
+            activeTest: prototypeState.activeTest ? { ...prototypeState.activeTest } : null
         }
     };
 }
@@ -3612,7 +3613,14 @@ function populateForm(character) {
     el.feedbackNotes.value = character.feedback?.notes ?? "";
     prototypeState.lastGearComparison = null;
     prototypeState.candidateEquipped = false;
-    prototypeState.activeTest = null;
+    prototypeState.activeTest = character.feedback?.activeTest ?? null;
+
+    // Older v0.3 saves may contain feedback without test provenance. Keep the
+    // note/result visible, but do not let it drive a recommendation as if the
+    // tested change were known.
+    if (!prototypeState.activeTest && prototypeState.feedbackResult) {
+        prototypeState.feedbackResult = null;
+    }
 
     updateFeedbackUI();
     resetGearVerdict();
