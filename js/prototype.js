@@ -3866,6 +3866,21 @@ function compareGear() {
     const character = getCharacterFromForm();
     const equipped = character.gear.equipped;
     const candidate = character.gear.candidate;
+    const hasDecisionData = item => Boolean(
+        item?.name || item?.rarity || item?.itemType || item?.itemPower ||
+        item?.armor || item?.damage || item?.power ||
+        (Array.isArray(item?.affixDetails) && item.affixDetails.length)
+    );
+
+    if (!hasDecisionData(equipped) || !hasDecisionData(candidate)) {
+        prototypeState.lastGearComparison = null;
+        document.getElementById("gearVerdict").textContent = "ADD TWO ITEMS";
+        document.getElementById("gearReason").textContent =
+            "Darkstorm needs decision data for both Item A and Item B before comparing them.";
+        document.getElementById("equipCandidateButton").disabled = true;
+        return null;
+    }
+
     const equippedScore = scoreGear(equipped, character.profile.goal);
     const candidateScore = scoreGear(candidate, character.profile.goal);
     const delta = candidateScore - equippedScore;
@@ -3898,8 +3913,9 @@ function compareGear() {
     const direction = delta >= 0 ? "higher" : "lower";
     const absoluteDelta = Math.abs(Math.round(delta));
 
-    reasonEl.textContent =
-        `${itemDisplayName(candidate, "Item B")} scores ${absoluteDelta} prototype points ${direction} than ${itemDisplayName(equipped, "Item A")} in the ${slotLabel} slot for the current "${character.profile.goal}" goal. This is a test heuristic, not a live Diablo IV damage calculator.`;
+    reasonEl.textContent = verdict === "HOLD"
+        ? "The prototype heuristic does not see enough separation between Item A and Item B to justify a swap for the current \"" + character.profile.goal + "\" goal. Hold the current setup or use a controlled play test."
+        : itemDisplayName(candidate, "Item B") + " scores " + absoluteDelta + " prototype points " + direction + " than " + itemDisplayName(equipped, "Item A") + " in the " + slotLabel + " slot for the current \"" + character.profile.goal + "\" goal. This is a test heuristic, not a live Diablo IV damage calculator.";
 
     equipButton.disabled = verdict !== "SWAP";
 
