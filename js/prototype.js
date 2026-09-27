@@ -3104,14 +3104,18 @@ function mergeScreenshotExtractions(primary, enhanced) {
                 /\b(?:empty socket|requires level|sell value|durability|tempers?|mark as junk|compare|drop|scroll)\b/i.test(line)
             );
             const uniqueStart = uniquePowerStartIndex(passLines, 0);
+            const inferredLegendaryStart = passLines.findIndex(line =>
+                /\b(?:cold\s+damage\s+is\s+increased|your\s+desecrated\s+ground|when\s+you\b)/i.test(line)
+            );
             const socketEffect = socketEffectFromLines(passLines);
-            const hardEnd = explicitPowerIndex >= 0
-                ? explicitPowerIndex
-                : (uniqueStart >= 0
-                    ? uniqueStart
-                    : (socketEffect?.lineIndex >= 0
-                        ? socketEffect.lineIndex
-                        : (metadataIndex >= 0 ? metadataIndex : passLines.length)));
+            const powerBoundary = [explicitPowerIndex, uniqueStart, inferredLegendaryStart]
+                .filter(index => index >= 0)
+                .sort((a, b) => a - b)[0] ?? -1;
+            const hardEnd = powerBoundary >= 0
+                ? powerBoundary
+                : (socketEffect?.lineIndex >= 0
+                    ? socketEffect.lineIndex
+                    : (metadataIndex >= 0 ? metadataIndex : passLines.length));
 
             const details = sequentialAffixes(
                 passLines.slice(0, hardEnd),
@@ -3284,6 +3288,21 @@ function mergeScreenshotExtractions(primary, enhanced) {
             merged.detected.push("Aspect / unique power");
             if (recoveredPower.roll) merged.detected.push("Power roll");
         }
+    }
+
+    // Recover explicit empty sockets across both OCR passes as well as gem
+    // effects. This mirrors single-pass parsing so a good socket read from one
+    // pass is not lost during merge.
+    const mergedEmptySockets = rawPasses
+        .map(passLines => passLines.filter(line =>
+            /\b(?:Empty|Mpty|Emptv|Empt)\s+Socket\b/i.test(line) ||
+            /^\W*Socket\W*$/i.test(line)
+        ).length)
+        .reduce((max, count) => Math.max(max, count), 0);
+    if (mergedEmptySockets) {
+        merged.fields.sockets = Math.min(2, mergedEmptySockets);
+        merged.fields.socketContents = Array(merged.fields.sockets).fill("Empty").join(", ");
+        merged.detected.push("Sockets", "Socket contents");
     }
 
     const mergedSocketEffect = rawPasses
