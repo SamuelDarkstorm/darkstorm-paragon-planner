@@ -3612,8 +3612,8 @@ function populateForm(character) {
     prototypeState.feedbackResult = character.feedback?.result ?? null;
     el.feedbackNotes.value = character.feedback?.notes ?? "";
     prototypeState.lastGearComparison = null;
-    prototypeState.candidateEquipped = false;
     prototypeState.activeTest = character.feedback?.activeTest ?? null;
+    prototypeState.candidateEquipped = prototypeState.activeTest?.type === "gear-swap";
 
     // Older v0.3 saves may contain feedback without test provenance. Keep the
     // note/result visible, but do not let it drive a recommendation as if the
@@ -4444,7 +4444,7 @@ SCREENSHOT_PREFIXES.forEach(prefix => {
 
         field.addEventListener("input", () => {
             prototypeState.lastGearComparison = null;
-            prototypeState.candidateEquipped = false;
+            if (!prototypeState.activeTest) prototypeState.candidateEquipped = false;
             resetGearVerdict();
 
             if (itemConfirmationRequired(prefix)) {
