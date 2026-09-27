@@ -3819,24 +3819,49 @@ function resetBuildSnapshotForClass() {
     markUnsaved();
 }
 
+function numericAffixValue(item, patterns) {
+    return (item.affixDetails ?? []).reduce((total, affix) => {
+        const label = String(affix.stat ?? affix.text ?? "").toLowerCase();
+        if (!patterns.some(pattern => pattern.test(label))) return total;
+        const value = Number(String(affix.value ?? "").replace(/[^0-9.-]/g, ""));
+        return total + (Number.isFinite(value) ? value : 0);
+    }, 0);
+}
+
 function defensiveScore(item) {
-    return (item.armor * 0.35) + (item.life * 0.55) + (item.defense * 35);
+    const affixLife = numericAffixValue(item, [/maximum life/, /max life/]);
+    const affixArmor = numericAffixValue(item, [/\barmor\b/]);
+    const affixDefense = numericAffixValue(item, [/resist/, /damage reduction/, /fortify/]);
+    return ((Number(item.armor) || affixArmor) * 0.35) +
+        ((Number(item.life) || affixLife) * 0.55) +
+        ((Number(item.defense) || affixDefense) * 35);
 }
 
-function offensiveScore(item) {
-    return (item.damage * 1.2) + (item.armor * 0.05) + (item.life * 0.05);
+function offensiveScore(item, character) {
+    const intelligence = numericAffixValue(item, [/\bintelligence\b/]);
+    const minion = numericAffixValue(item, [/minion/, /skeleton/, /golem/, /summon/]);
+    const multiplier = numericAffixValue(item, [/multiplier/, /vulnerable damage/, /shadow damage/]);
+    const identity = character ? buildIdentityFor(character) : null;
+    const minionWeight = identity?.key === "minion-necromancer" ? 1.25 : 0.5;
+
+    return ((Number(item.damage) || 0) * 1.2) +
+        ((Number(item.armor) || 0) * 0.05) +
+        ((Number(item.life) || 0) * 0.05) +
+        (intelligence * 0.18) +
+        (minion * minionWeight) +
+        (multiplier * 1.5);
 }
 
-function scoreGear(item, goal) {
+function scoreGear(item, goal, character) {
     if (goal === "damage" || goal === "clear-speed") {
-        return offensiveScore(item);
+        return offensiveScore(item, character);
     }
 
     if (goal === "survivability") {
         return defensiveScore(item);
     }
 
-    return (defensiveScore(item) * 0.65) + (offensiveScore(item) * 0.35);
+    return (defensiveScore(item) * 0.65) + (offensiveScore(item, character) * 0.35);
 }
 
 function compareGear() {
@@ -3881,8 +3906,8 @@ function compareGear() {
         return null;
     }
 
-    const equippedScore = scoreGear(equipped, character.profile.goal);
-    const candidateScore = scoreGear(candidate, character.profile.goal);
+    const equippedScore = scoreGear(equipped, character.profile.goal, character);
+    const candidateScore = scoreGear(candidate, character.profile.goal, character);
     const delta = candidateScore - equippedScore;
 
     let verdict = "HOLD";
