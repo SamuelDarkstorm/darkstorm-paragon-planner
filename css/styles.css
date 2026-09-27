@@ -5,17 +5,19 @@
 }
 
 :root {
-    --bg: #0d0f12;
-    --panel: #171b20;
-    --panel-2: #20262d;
-    --line: #2f3946;
-    --text: #e5e5e5;
-    --muted: #9aa4af;
-    --accent: #66e0a3;
-    --accent-dark: #2c7a55;
-    --warning: #efff73;
-    --danger: #b84b4b;
-}
+  --bg: #08090b;
+  --panel: #111216;
+  --panel-2: #19151a;
+  --line: #3a292d;
+
+  --text: #e8e0d5;
+  --muted: #9b8f88;
+
+  --accent: #9e2738;
+  --accent-dark: #651824;
+
+  --warning: #c28a45;
+  --danger: #b33a3a;
 
 html {
     scroll-behavior: smooth;
@@ -38,7 +40,7 @@ textarea {
 
 button,
 .button {
-    border: 1px solid #3b4653;
+    border: 1px solid #4a252d;
     border-radius: 8px;
     background: var(--accent-dark);
     color: white;
@@ -59,7 +61,7 @@ button:disabled {
 
 button.secondary,
 .button.secondary {
-    background: #252d36;
+    background: #211419;
 }
 
 button.danger {
@@ -72,7 +74,7 @@ button.danger {
     gap: 24px;
     align-items: center;
     padding: 20px;
-    background: #15181d;
+    background: #100b0e;
     border-bottom: 2px solid var(--line);
 }
 
@@ -239,10 +241,10 @@ input,
 select,
 textarea {
     width: 100%;
-    border: 1px solid #39424d;
+    border: 1px solid #45282f;
     border-radius: 7px;
-    background: #101419;
-    color: white;
+    background: #120d10;
+    color: var(--text);
     padding: 10px 11px;
 }
 
@@ -251,12 +253,12 @@ textarea {
 }
 
 .mission-panel {
-    border-color: #355f4c;
+    border-color: #5a2832;
 }
 
 .priority-card {
-    background: #101713;
-    border: 1px solid #305843;
+    background: #170d11;
+    border: 1px solid #652a36;
     border-radius: 10px;
     padding: 18px;
     margin-bottom: 14px;
@@ -636,10 +638,10 @@ footer {
     justify-content: space-between;
     align-items: flex-start;
     gap: 12px;
-    padding: 12px;
-    border: 1px solid #355f4c;
+    padding: 10px;
+    border: 1px solid #4a252d;
     border-radius: 9px;
-    background: #101713;
+    background: #120d10;
 }
 
 .decision-data-heading p {
