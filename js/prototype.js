@@ -3920,6 +3920,14 @@ function compareGear() {
     if (delta > 25) verdict = "SWAP";
     if (delta < -25) verdict = "KEEP";
 
+    const differentPowers = Boolean(
+        equipped.power && candidate.power &&
+        equipped.power.trim().toLowerCase() !== candidate.power.trim().toLowerCase()
+    );
+    if (differentPowers && Math.abs(delta) < 60) {
+        verdict = "HOLD";
+    }
+
     const slotKey = el.comparisonSlot.value;
     const slotLabel = comparisonSlotLabel(slotKey);
 
@@ -3930,7 +3938,8 @@ function compareGear() {
         candidateScore,
         goal: character.profile.goal,
         slotKey,
-        slotLabel
+        slotLabel,
+        differentPowers
     };
 
     prototypeState.lastGearComparison = comparison;
@@ -3945,7 +3954,9 @@ function compareGear() {
     const absoluteDelta = Math.abs(Math.round(delta));
 
     reasonEl.textContent = verdict === "HOLD"
-        ? "The prototype heuristic does not see enough separation between Item A and Item B to justify a swap for the current \"" + character.profile.goal + "\" goal. Hold the current setup or use a controlled play test."
+        ? (differentPowers
+            ? "Item A and Item B have different powers, and the prototype cannot safely reduce that build interaction to a numeric score. The stat difference is not large enough to override that uncertainty; use a controlled play test."
+            : "The prototype heuristic does not see enough separation between Item A and Item B to justify a swap for the current \"" + character.profile.goal + "\" goal. Hold the current setup or use a controlled play test.")
         : itemDisplayName(candidate, "Item B") + " scores " + absoluteDelta + " prototype points " + direction + " than " + itemDisplayName(equipped, "Item A") + " in the " + slotLabel + " slot for the current \"" + character.profile.goal + "\" goal. This is a test heuristic, not a live Diablo IV damage calculator.";
 
     equipButton.disabled = verdict !== "SWAP";
