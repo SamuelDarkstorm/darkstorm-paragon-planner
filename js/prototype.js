@@ -3957,6 +3957,14 @@ function equipCandidate() {
     const mismatch = updateGearSlotMismatchUI();
     const confirmation = confirmationBlockingState();
 
+    if (prototypeState.lastGearComparison?.verdict !== "SWAP") {
+        document.getElementById("gearVerdict").textContent = "COMPARE FIRST";
+        document.getElementById("gearReason").textContent =
+            "Run the comparison first. Darkstorm will only write Item B into the equipped loadout after a current SWAP result.";
+        document.getElementById("equipCandidateButton").disabled = true;
+        return;
+    }
+
     if (mismatch.blocking || confirmation.blocking) {
         document.getElementById("gearVerdict").textContent =
             mismatch.blocking ? "REVIEW SLOT" : "CONFIRM DATA";
@@ -3974,7 +3982,9 @@ function equipCandidate() {
         ...emptyLoadoutItem(),
         ...candidate
     });
+    const candidateWasVerified = prototypeState.itemConfirmed.candidate;
     promoteCandidateScreenshotToEquipped();
+    if (candidateWasVerified) prototypeState.loadoutVerified[slotKey] = true;
     prototypeState.candidateEquipped = true;
     document.getElementById("gearVerdict").textContent = "EQUIPPED";
     document.getElementById("gearReason").textContent =
