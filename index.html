@@ -252,12 +252,12 @@
         </div>
 
         <p class="muted section-intro">
-            Add an in-game screenshot to either side, then choose <strong>Read Screenshot</strong>. Darkstorm captures decision-relevant item data, leaves uncertain values blank, and waits for the gamer to verify the item before comparison.
+            Compare any two items for the selected slot. Item A can be loaded from the equipped loadout, but neither side has to be currently equipped. Add a screenshot to either side, choose <strong>Read Screenshot</strong>, verify the decision data, then compare.
         </p>
 
         <div class="gear-grid">
             <fieldset>
-                <legend>Equipped Item</legend>
+                <legend>Item A</legend>
 
                 <div class="screenshot-intake" id="equippedScreenshotDropZone">
                     <div class="screenshot-heading">
@@ -380,7 +380,7 @@
             </fieldset>
 
             <fieldset>
-                <legend>Candidate Item</legend>
+                <legend>Item B</legend>
 
                 <div class="screenshot-intake" id="candidateScreenshotDropZone">
                     <div class="screenshot-heading">
@@ -504,9 +504,9 @@
         </div>
 
         <div class="action-row">
-            <button id="loadSlotFromLoadoutButton" type="button" class="secondary">Load Equipped Item from Loadout</button>
+            <button id="loadSlotFromLoadoutButton" type="button" class="secondary">Load Item A from Equipped Loadout</button>
             <button id="compareGearButton" type="button">Compare Gear</button>
-            <button id="equipCandidateButton" type="button" class="secondary" disabled>Equip Candidate</button>
+            <button id="equipCandidateButton" type="button" class="secondary" disabled>Use Item B as Equipped</button>
         </div>
         <p id="gearReason" class="result-text">Enter two items or load the demo character.</p>
     </section>
