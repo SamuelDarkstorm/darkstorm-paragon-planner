@@ -4032,8 +4032,10 @@ function recommendationFor(character) {
     if (feedback === "worse" && prototypeState.activeTest) {
         return {
             title: "Revert the last change and reassess.",
-            summary: "The player's test result outweighs the prototype's earlier assumption.",
-            why: "The most recent change made the character feel worse in actual play.",
+            summary: prototypeState.activeTest.type === "gear-swap"
+                ? prototypeState.activeTest.itemName + " tested worse in the " + prototypeState.activeTest.slotLabel.toLowerCase() + " slot."
+                : "The player's test result outweighs the prototype's earlier assumption.",
+            why: "The active controlled test made the character feel worse in actual play.",
             whyNow: "Darkstorm should not continue optimizing on top of a change that failed the play test.",
             whyNot: "Do not stack another major change yet; that would make it harder to identify the cause.",
             changes: "If a repeat test shows the problem was unrelated to the change, this recommendation can be revised.",
@@ -4044,7 +4046,9 @@ function recommendationFor(character) {
     if (feedback === "same" && prototypeState.activeTest) {
         return {
             title: "Keep the test controlled and change one variable.",
-            summary: "The last play test produced no noticeable change, so Darkstorm should not treat that hypothesis as confirmed.",
+            summary: prototypeState.activeTest.type === "gear-swap"
+                ? prototypeState.activeTest.itemName + " produced no noticeable improvement in the " + prototypeState.activeTest.slotLabel.toLowerCase() + " slot."
+                : "The last play test produced no noticeable change, so Darkstorm should not treat that hypothesis as confirmed.",
             why: "A neutral result is still evidence: the tested change did not clearly solve the reported problem.",
             whyNow: "Moving to one different controlled variable preserves what was learned without stacking changes.",
             whyNot: "Repeating broad changes on top of a neutral result would make the next outcome harder to interpret.",
@@ -4056,8 +4060,8 @@ function recommendationFor(character) {
     if (feedback === "better" && prototypeState.activeTest?.type === "gear-swap") {
         return {
             title: "Keep the gear change and reassess the build.",
-            summary: "The gear test produced a positive result, so Darkstorm can reassess the character before proposing another change.",
-            why: "The candidate item improved the player's reported experience.",
+            summary: prototypeState.activeTest.itemName + " improved the player's reported result in the " + prototypeState.activeTest.slotLabel.toLowerCase() + " slot.",
+            why: "The controlled Item B test improved the player's reported experience.",
             whyNow: "The gear question has enough evidence to stop consuming attention for the moment.",
             whyNot: "Another immediate gear swap would add noise before the current improvement is established.",
             changes: "If survivability or clear speed falls off again, gear returns to the priority list.",
