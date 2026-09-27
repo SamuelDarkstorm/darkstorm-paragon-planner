@@ -4298,10 +4298,20 @@ function importPrototype(file) {
     reader.addEventListener("load", () => {
         try {
             const data = JSON.parse(reader.result);
+            const validShape = data && typeof data === "object" &&
+                data.profile && typeof data.profile === "object" &&
+                data.build && typeof data.build === "object" &&
+                data.gear && typeof data.gear === "object";
+
+            if (!validShape) {
+                throw new Error("Not a Darkstorm character file");
+            }
+
             populateForm(data);
             analyzeBuild();
+            document.getElementById("saveStatus").textContent = "Imported · not saved locally";
         } catch (error) {
-            window.alert("Darkstorm could not read that JSON file.");
+            window.alert("Darkstorm could not read that character file. Choose a Darkstorm JSON export.");
         }
     });
     reader.readAsText(file);
