@@ -3574,6 +3574,8 @@ function setGear(prefix, gear) {
 
 function populateForm(character) {
     clearAllItemScreenshots();
+    prototypeState.loadoutExtractions = {};
+    prototypeState.loadoutVerified = {};
 
     el.characterName.value = character.profile?.name ?? "";
     el.className.value = character.profile?.className ?? "Necromancer";
@@ -3988,7 +3990,8 @@ function equipCandidate() {
     });
     const candidateWasVerified = prototypeState.itemConfirmed.candidate;
     promoteCandidateScreenshotToEquipped();
-    if (candidateWasVerified) prototypeState.loadoutVerified[slotKey] = true;
+    prototypeState.loadoutExtractions[slotKey] = null;
+    prototypeState.loadoutVerified[slotKey] = candidateWasVerified;
     prototypeState.candidateEquipped = true;
     document.getElementById("gearVerdict").textContent = "EQUIPPED";
     document.getElementById("gearReason").textContent =
