@@ -571,11 +571,9 @@ function comparisonSlotLabel(slotKey = el.comparisonSlot?.value) {
 function loadSelectedSlotFromLoadout() {
     const slotKey = el.comparisonSlot.value;
     const equippedItem = getLoadoutItem(slotKey);
+    clearItemScreenshot("equipped");
     setGear("equipped", equippedItem);
-
-    if (itemConfirmationRequired("equipped")) {
-        invalidateItemConfirmation("equipped", { resetComparison: false });
-    }
+    prototypeState.itemConfirmed.equipped = Boolean(prototypeState.loadoutVerified[slotKey]);
 
     prototypeState.lastGearComparison = null;
     prototypeState.candidateEquipped = false;
@@ -3855,7 +3853,7 @@ function compareGear() {
                 "Darkstorm stopped the comparison because the screenshot item type does not match the selected comparison slot.";
         } else {
             const pendingLabels = confirmation.pending
-                .map(prefix => prefix === "equipped" ? "Equipped Item" : "Candidate Item")
+                .map(prefix => prefix === "equipped" ? "Item A" : "Item B")
                 .join(" and ");
             document.getElementById("gearVerdict").textContent = "CONFIRM DATA";
             document.getElementById("gearReason").textContent =
@@ -3901,9 +3899,9 @@ function compareGear() {
     const absoluteDelta = Math.abs(Math.round(delta));
 
     reasonEl.textContent =
-        `${itemDisplayName(candidate, "Candidate item")} scores ${absoluteDelta} prototype points ${direction} than ${itemDisplayName(equipped, "equipped item")} in the ${slotLabel} slot for the current "${character.profile.goal}" goal. This is a test heuristic, not a live Diablo IV damage calculator.`;
+        `${itemDisplayName(candidate, "Item B")} scores ${absoluteDelta} prototype points ${direction} than ${itemDisplayName(equipped, "Item A")} in the ${slotLabel} slot for the current "${character.profile.goal}" goal. This is a test heuristic, not a live Diablo IV damage calculator.`;
 
-    equipButton.disabled = verdict === "KEEP";
+    equipButton.disabled = verdict !== "SWAP";
 
     return comparison;
 }
@@ -3939,7 +3937,7 @@ function equipCandidate() {
     prototypeState.candidateEquipped = true;
     document.getElementById("gearVerdict").textContent = "EQUIPPED";
     document.getElementById("gearReason").textContent =
-        `${itemDisplayName(candidate, "Candidate item")} is now treated as equipped for the next Darkstorm analysis.`;
+        `${itemDisplayName(candidate, "Item B")} is now saved as the equipped ${comparisonSlotLabel(slotKey).toLowerCase()} for the next Darkstorm analysis.`;
     markUnsaved();
     analyzeBuild();
 }
@@ -3977,12 +3975,12 @@ function recommendationFor(character) {
 
     if (gearComparison?.verdict === "SWAP" && !prototypeState.candidateEquipped) {
         return {
-            title: `Test the candidate ${(gearComparison.slotLabel ?? "item").toLowerCase()}.`,
-            summary: "Darkstorm found a candidate that better matches the current goal using the prototype heuristic.",
-            why: "The candidate scores meaningfully better for the selected priority.",
+            title: `Test Item B in the ${(gearComparison.slotLabel ?? "item").toLowerCase()} slot.`,
+            summary: "Darkstorm found Item B better matches the current goal than Item A using the prototype heuristic.",
+            why: "Item B scores meaningfully better than Item A for the selected priority.",
             whyNow: "It is a reversible change with a clear before-and-after test.",
             whyNot: "Changing skills at the same time would make the result harder to interpret.",
-            changes: "If the candidate feels worse in play, revert it regardless of the prototype score.",
+            changes: "If Item B feels worse in play, revert it regardless of the prototype score.",
             confidence: 82
         };
     }
