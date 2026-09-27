@@ -154,6 +154,10 @@ function renderEquipmentLoadout() {
             </div>
             <div id="loadout-${slotId}-readout" class="screenshot-readout" hidden>
                 <p id="loadout-${slotId}-readout-text" class="muted"></p>
+                <details>
+                    <summary>Show detected text (Tesseract)</summary>
+                    <pre id="loadout-${slotId}-ocr-text"></pre>
+                </details>
             </div>
         `;
         fields.append(intake);
@@ -234,7 +238,8 @@ function wireLoadoutScreenshotIntake(slot) {
     const status = document.getElementById(`loadout-${slotKey}-screenshot-status`);
     const readout = document.getElementById(`loadout-${slotKey}-readout`);
     const readoutText = document.getElementById(`loadout-${slotKey}-readout-text`);
-    if (!input || !read || !confirm || !remove || !preview || !empty || !status || !readout || !readoutText) return;
+    const ocrText = document.getElementById(`loadout-${slotKey}-ocr-text`);
+    if (!input || !read || !confirm || !remove || !preview || !empty || !status || !readout || !readoutText || !ocrText) return;
 
     input.addEventListener("change", event => {
         const file = event.target.files?.[0];
@@ -326,6 +331,9 @@ function wireLoadoutScreenshotIntake(slot) {
             }
 
             if ((extraction.detected ?? []).length < 2) {
+                ocrText.textContent = rawOcrPasses
+                    .map((text, index) => `--- Tesseract pass ${index + 1} ---\n${String(text ?? "").trim() || "(no text)"}`)
+                    .join("\n\n");
                 readout.hidden = false;
                 readoutText.textContent =
                     `Darkstorm could not confidently map enough ${slot.label.toLowerCase()} data. Existing fields were left unchanged.`;
@@ -337,6 +345,9 @@ function wireLoadoutScreenshotIntake(slot) {
             prototypeState.loadoutExtractions[slotKey] = extraction;
             prototypeState.loadoutVerified[slotKey] = false;
 
+            ocrText.textContent = rawOcrPasses
+                .map((text, index) => `--- Tesseract pass ${index + 1} ---\n${String(text ?? "").trim() || "(no text)"}`)
+                .join("\n\n");
             readout.hidden = false;
             readoutText.textContent =
                 `OCR draft loaded into ${slot.label} (${Math.round(confidence)}% text confidence). Review the fields below, correct anything needed, then confirm.`;
