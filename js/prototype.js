@@ -1585,7 +1585,14 @@ function recoverItemIdentityFromRawPasses(rawPasses = []) {
         const itemType = typeMatches[0]?.[1] ?? "";
 
         const nameResult = parseItemName(lines, rarityIndex);
-        results.push({ rarity, itemType, name: nameResult.confident ? nameResult.value : "" });
+        const headerIdentity = recoverHeaderIdentityNearItemPower(lines);
+        results.push({
+            rarity,
+            itemType,
+            name: nameResult.confident
+                ? nameResult.value
+                : (headerIdentity.name || "")
+        });
     });
 
     const chooseConsensus = key => {
@@ -1598,9 +1605,21 @@ function recoverItemIdentityFromRawPasses(rawPasses = []) {
             groups.get(normalized).push(value);
         });
         const best = [...groups.values()].sort((a, b) => b.length - a.length)[0];
-        // For clean header identity fields, a single usable pass is evidence;
-        // conflicting nonempty passes still fail closed.
-        if (groups.size > 1) return "";
+        // For clean header identity fields, a single usable pass is evidence.
+        // Names are special: preprocessing can make one pass lose border-adjacent
+        // title text while the other still has a clean title. Prefer the longest
+        // normalized title when one is a clear word-preserving extension of the
+        // other; otherwise conflicting names still fail closed.
+        if (groups.size > 1) {
+            if (key !== "name") return "";
+            const normalizedGroups = [...groups.entries()]
+                .sort((a, b) => b[0].length - a[0].length);
+            const [longestKey, longestValues] = normalizedGroups[0];
+            const compatible = normalizedGroups.slice(1).every(([candidate]) =>
+                longestKey.includes(candidate) || candidate.includes(longestKey)
+            );
+            return compatible ? longestValues[0] : "";
+        }
         return best[0];
     };
 
