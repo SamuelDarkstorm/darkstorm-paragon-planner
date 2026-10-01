@@ -2716,10 +2716,10 @@ function parseDiabloItemText(rawText, slotKey) {
         inferredPowerIndex = lines.findIndex((line, index) => {
             if (index < cursor) return false;
             const current = String(line ?? "");
-            const actionStart = /\b(?:when\s+you|your\s+summons|a\s+dark\s+aura|consuming\s+a\s+corpse|only\s+army)\b/i.test(current);
+            const actionStart = /\b(?:when\s+you|your\s+summons|a\s+dark\s+aura|consuming\s+a\s+corpse|only\s+army|cold\s+damage\s+is\s+increased|your\s+desecrated\s+ground)\b/i.test(current);
             if (!actionStart) return false;
             const window = lines.slice(index, Math.min(lines.length, index + 5)).join(" ");
-            const powerLanguage = /\b(?:trigger|increased\s+damage|vampiric\s+curse|decrepify|iron\s+maiden|thorns\s+attack|souls?)\b/i.test(window);
+            const powerLanguage = /\b(?:trigger|increased\s+damage|damage\s+is\s+increased|vampiric\s+curse|decrepify|iron\s+maiden|thorns\s+attack|souls?|vulnerable)\b/i.test(window);
             return powerLanguage;
         });
     }
@@ -3398,9 +3398,9 @@ async function createEnhancedOcrSource(file) {
         // Diablo item screenshots usually place the tooltip on the left while
         // inventory art/UI occupies the right. Trim that noisy side and the
         // bottom controller prompts before enlarging the text for OCR.
-        const cropWidth = Math.max(1, Math.floor(bitmap.width * 0.72));
-        const cropHeight = Math.max(1, Math.floor(bitmap.height * 0.88));
-        const scale = Math.min(2.5, Math.max(1.6, 2400 / cropWidth));
+        const cropWidth = Math.max(1, Math.floor(bitmap.width * 0.86));
+        const cropHeight = Math.max(1, Math.floor(bitmap.height * 0.92));
+        const scale = Math.min(2.2, Math.max(1.5, 2300 / cropWidth));
 
         const canvas = document.createElement("canvas");
         canvas.width = Math.floor(cropWidth * scale);
@@ -3430,9 +3430,9 @@ async function createEnhancedOcrSource(file) {
             // solid blobs.
             const contrasted = Math.max(
                 0,
-                Math.min(255, ((inverted - 128) * 1.75) + 128)
+                Math.min(255, ((inverted - 128) * 1.6) + 128)
             );
-            const cleaned = contrasted < 42 ? 0 : (contrasted > 218 ? 255 : contrasted);
+            const cleaned = contrasted < 28 ? 0 : (contrasted > 232 ? 255 : contrasted);
 
             pixels[index] = cleaned;
             pixels[index + 1] = cleaned;
