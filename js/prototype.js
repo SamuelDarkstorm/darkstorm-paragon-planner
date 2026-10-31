@@ -22,10 +22,6 @@ const prototypeState = {
         equipped: false,
         candidate: false
     },
-    continuations: {
-        equipped: null,
-        candidate: null
-    },
     screenshotIncomplete: {
         equipped: false,
         candidate: false
@@ -34,6 +30,7 @@ const prototypeState = {
         equipped: null,
         candidate: null
     },
+    intakeSessions: {},
     loadoutScreenshots: {},
     loadoutScreenshotUrls: {},
     loadoutExtractions: {},
@@ -227,6 +224,231 @@ function applyExtractionToLoadout(slotKey, extraction) {
     return item;
 }
 
+// Capture sessions are temporary. Only the final player-verified item is saved.
+function newIntakeSession(key) {
+    const session = { captures: [], incomplete: false, pending: false, reading: false,
+        conflict: "", reviewComplete: false };
+    prototypeState.intakeSessions[key] = session;
+    return session;
+}
+
+function intakeBlocked(session) {
+    return Boolean(session && (session.pending || session.reading || session.incomplete ||
+        session.conflict || (session.captures.length > 1 && !session.reviewComplete)));
+}
+
+function intakeValuePresent(value) {
+    return value !== "" && value !== 0 && value != null;
+}
+
+// Different views are NOT preprocessing passes. Never reparse concatenated views,
+// replace a player correction, or silently choose between two nonempty values.
+function mergeContinuationDraft(current, extraction, sameItemConfirmed) {
+    const fields = { ...current, affixDetails: (current.affixDetails ?? []).map(row => ({ ...row })) };
+    const conflicts = [];
+    if (!sameItemConfirmed) return { ok: false, conflicts: ["Confirm that both views show the same item"] };
+    const next = extraction.fields ?? {};
+    const equivalent = (a, b) => String(a).trim().toLowerCase().replace(/\s+/g, " ") ===
+        String(b).trim().toLowerCase().replace(/\s+/g, " ");
+    Object.entries(next).forEach(([key, value]) => {
+        if (["affixDetails", "affixes", "baseArmor", "life", "defense"].includes(key) || !intakeValuePresent(value)) return;
+        const old = fields[key];
+        if (!intakeValuePresent(old)) { fields[key] = value; return; }
+        if (equivalent(old, value)) return;
+        if (key === "power") {
+            const a = String(old).trim(), b = String(value).trim();
+            if (a.toLowerCase().includes(b.toLowerCase())) return;
+            if (b.toLowerCase().includes(a.toLowerCase())) { fields[key] = b; return; }
+            const left = a.split(/\s+/), right = b.split(/\s+/);
+            for (let n = Math.min(left.length, right.length); n >= 3; n -= 1) {
+                if (equivalent(left.slice(-n).join(" "), right.slice(0, n).join(" "))) {
+                    fields[key] = [...left, ...right.slice(n)].join(" ");
+                    return;
+                }
+            }
+        }
+        conflicts.push(`${key}: current “${old}”, continuation “${value}”`);
+    });
+    (next.affixDetails ?? []).forEach(row => {
+        if (!row.stat) return;
+        const existing = fields.affixDetails.find(item => equivalent(item.stat, row.stat));
+        if (!existing) {
+            if (fields.affixDetails.length >= MAX_AFFIX_ROWS) conflicts.push("Too many affixes; review overlap");
+            else fields.affixDetails.push({ ...row });
+            return;
+        }
+        ["value", "min", "max"].forEach(key => {
+            if (!intakeValuePresent(row[key])) return;
+            if (!intakeValuePresent(existing[key])) existing[key] = row[key];
+            else if (!equivalent(existing[key], row[key])) conflicts.push(`${row.stat} ${key}: current “${existing[key]}”, continuation “${row[key]}”`);
+        });
+    });
+    // A range without a supported roll stays out of the decision fields.
+    fields.affixDetails.forEach(row => {
+        if (!row.value) { row.min = ""; row.max = ""; return; }
+        if (row.min && row.max) {
+            const roll = decimalFromOcr(row.value), low = decimalFromOcr(row.min), high = decimalFromOcr(row.max);
+            if (roll < low || roll > high) conflicts.push(`${row.stat}: roll is outside the visible range`);
+        }
+    });
+    fields.affixes = formatAffixDetails(fields.affixDetails);
+    fields.life = fields.life || affixValueFor(fields.affixDetails, /^Maximum Life$/i);
+    fields.defense = fields.defense || affixValueFor(fields.affixDetails, /^(?:Damage Reduction|All Resistance|Resistance)$/i);
+    fields.baseArmor = fields.armor;
+    return { ok: conflicts.length === 0, fields, conflicts };
+}
+
+function intakeTarget(key) {
+    if (key.startsWith("loadout:")) {
+        const slot = key.slice(8), root = `loadout-${slot}`;
+        return {
+            get: () => getLoadoutItem(slot),
+            set: fields => applyExtractionToLoadout(slot, { fields }),
+            base: () => prototypeState.loadoutExtractions[slot],
+            store: value => { prototypeState.loadoutExtractions[slot] = value; },
+            revoke: () => { prototypeState.loadoutVerified[slot] = false; updateLoadoutIntelligence(); },
+            slot,
+            text: document.getElementById(`${root}-readout-text`),
+            raw: document.getElementById(`${root}-ocr-text`),
+            readout: document.getElementById(`${root}-readout`)
+        };
+    }
+    const ui = screenshotElements(key);
+    return {
+        // getGear includes bonus Armor in armor; intake compares the base header.
+        get: () => { const item = getGear(key); return { ...item, armor: item.baseArmor }; },
+        set: fields => setGear(key, fields),
+        base: () => prototypeState.baseScreenshotExtractions[key],
+        store: value => { prototypeState.baseScreenshotExtractions[key] = value; },
+        revoke: () => invalidateItemConfirmation(key), slot: el.comparisonSlot.value,
+        text: ui.readoutText, raw: ui.ocrText, readout: ui.readout
+    };
+}
+
+function invalidateIntakeDecision(key) {
+    intakeTarget(key).revoke();
+    prototypeState.lastGearComparison = null;
+    prototypeState.candidateEquipped = false;
+    resetGearVerdict();
+    markUnsaved();
+}
+
+function renderIntakeGate(key) {
+    const session = prototypeState.intakeSessions[key];
+    const root = document.getElementById(`continuation-${key}`);
+    if (!root) return;
+    const target = intakeTarget(key);
+    root.hidden = !target.base();
+    const read = root.querySelector('[data-intake="read"]');
+    read.disabled = !session?.file || session.reading || !root.querySelector('[data-intake="same"]').checked;
+    const complete = root.querySelector('[data-intake="complete"]');
+    complete.disabled = !session || session.captures.length < 2 || session.pending || session.reading || Boolean(session.conflict);
+    complete.checked = Boolean(session?.reviewComplete);
+    root.querySelector('[data-intake="status"]').textContent = session?.conflict ||
+        (session?.reading ? "Reading another view…" : session?.pending ? "Another view selected · read it before confirming." :
+        session?.incomplete ? "More of this tooltip remains below. Add the next view." :
+        session?.captures.length > 1 ? "Review the combined fields and confirm capture completeness below." :
+        "Long tooltip? Add a scrolled view with some overlap.");
+    if (key.startsWith("loadout:")) {
+        const confirm = document.getElementById(`loadout-${target.slot}-confirm`);
+        confirm.hidden = !target.base();
+        confirm.disabled = intakeBlocked(session);
+    } else updateItemConfirmationUI(key);
+}
+
+function wireContinuationTarget(key, host) {
+    const root = document.createElement("div");
+    root.id = `continuation-${key}`;
+    root.className = "screenshot-readout";
+    root.hidden = true;
+    root.innerHTML = `<p data-intake="status" class="muted" role="status"></p>
+        <label class="button secondary">Add another view<input data-intake="file" type="file" accept="image/*" hidden></label>
+        <label><input data-intake="same" type="checkbox"> These views show the same item</label>
+        <button data-intake="read" type="button" class="secondary" disabled>Read another view</button>
+        <label><input data-intake="complete" type="checkbox" disabled> I reviewed the combined views and the complete item is captured</label>`;
+    root.querySelectorAll("label").forEach(label => {
+        label.style.display = "flex";
+        label.style.alignItems = "center";
+        label.style.gap = "0.5rem";
+        label.style.marginBlock = "0.75rem";
+    });
+    root.querySelectorAll('input[type="checkbox"]').forEach(input => { input.style.width = "auto"; });
+    host.append(root);
+    root.querySelector('[data-intake="file"]').addEventListener("change", event => {
+        const file = event.target.files?.[0];
+        if (!file) return;
+        if (file.type && !file.type.startsWith("image/")) { window.alert("Choose an image file."); return; }
+        const session = prototypeState.intakeSessions[key] ?? newIntakeSession(key);
+        session.file = file; session.pending = true; session.reviewComplete = false; session.conflict = "";
+        root.querySelector('[data-intake="same"]').checked = false;
+        invalidateIntakeDecision(key);
+        renderIntakeGate(key);
+    });
+    root.querySelector('[data-intake="same"]').addEventListener("change", () => renderIntakeGate(key));
+    root.querySelector('[data-intake="complete"]').addEventListener("change", event => {
+        const session = prototypeState.intakeSessions[key];
+        if (!session || session.pending || session.reading || session.conflict) return;
+        session.reviewComplete = event.target.checked;
+        // Completeness is explicitly reviewed, not inferred from OCR missing a marker.
+        if (session.reviewComplete) session.incomplete = false;
+        if (!key.startsWith("loadout:")) prototypeState.screenshotIncomplete[key] = session.incomplete;
+        invalidateIntakeDecision(key);
+        renderIntakeGate(key);
+    });
+    root.querySelector('[data-intake="read"]').addEventListener("click", () => readIntakeContinuation(key));
+}
+
+async function readIntakeContinuation(key) {
+    const session = prototypeState.intakeSessions[key];
+    const root = document.getElementById(`continuation-${key}`);
+    if (!session?.file || session.reading || !root.querySelector('[data-intake="same"]').checked) return;
+    const target = intakeTarget(key), file = session.file;
+    const original = JSON.stringify(target.get());
+    session.reading = true;
+    invalidateIntakeDecision(key);
+    renderIntakeGate(key);
+    try {
+        const result = await window.Tesseract.recognize(file, "eng");
+        const passes = [result?.data?.text ?? ""];
+        let extraction = parseDiabloItemText(passes[0], target.slot);
+        if (shouldRunEnhancedRead(extraction)) {
+            try {
+                const enhanced = await window.Tesseract.recognize(await createEnhancedOcrSource(file), "eng");
+                passes.push(enhanced?.data?.text ?? "");
+                extraction = mergeScreenshotExtractions(extraction, parseDiabloItemText(passes[1], target.slot));
+            } catch (error) { console.warn("Enhanced continuation read failed:", error); }
+        }
+        if (prototypeState.intakeSessions[key] !== session || session.file !== file) return;
+        if (JSON.stringify(target.get()) !== original || target.slot !== intakeTarget(key).slot) {
+            session.conflict = "Fields changed during the read. Review them, then read this view again.";
+            return;
+        }
+        const merged = mergeContinuationDraft(target.get(), extraction,
+            root.querySelector('[data-intake="same"]').checked);
+        // Keep each capture and each preprocessing pass independently inspectable.
+        session.captures.push({ fileName: file.name, passes: [...passes], accepted: merged.ok });
+        target.readout.hidden = false;
+        target.raw.textContent += "\n\n--- Another view ---\n" + passes.map((raw, index) => `Pass ${index + 1}\n${raw}`).join("\n\n");
+        if (!merged.ok) {
+            session.conflict = "Views were not merged. " + merged.conflicts.join("; ") + ". Correct the current fields or choose the matching view, then read again.";
+            return;
+        }
+        target.set(merged.fields);
+        target.store({ ...extraction, fields: merged.fields, captures: session.captures.map(capture => ({ ...capture })) });
+        session.pending = false;
+        session.conflict = "";
+        session.incomplete = /\bScroll\s+Down\b/i.test(extraction.rawText ?? "");
+        session.reviewComplete = false;
+        target.text.textContent = "Another view merged into the draft. Review all fields before final Gamer Verification.";
+        invalidateIntakeDecision(key);
+    } catch (error) {
+        if (prototypeState.intakeSessions[key] === session) session.conflict = "Could not read this view. Try again or choose another image.";
+    } finally {
+        session.reading = false;
+        if (prototypeState.intakeSessions[key] === session) renderIntakeGate(key);
+    }
+}
+
 function wireLoadoutScreenshotIntake(slot) {
     const slotKey = slot.key;
     const input = document.getElementById(`loadout-${slotKey}-screenshot-input`);
@@ -240,6 +462,8 @@ function wireLoadoutScreenshotIntake(slot) {
     const readoutText = document.getElementById(`loadout-${slotKey}-readout-text`);
     const ocrText = document.getElementById(`loadout-${slotKey}-ocr-text`);
     if (!input || !read || !confirm || !remove || !preview || !empty || !status || !readout || !readoutText || !ocrText) return;
+    const intakeKey = `loadout:${slotKey}`;
+    wireContinuationTarget(intakeKey, readout.parentElement);
 
     input.addEventListener("change", event => {
         const file = event.target.files?.[0];
@@ -250,6 +474,9 @@ function wireLoadoutScreenshotIntake(slot) {
             return;
         }
 
+        newIntakeSession(intakeKey);
+        delete prototypeState.loadoutExtractions[slotKey];
+        renderIntakeGate(intakeKey);
         const oldUrl = prototypeState.loadoutScreenshotUrls[slotKey];
         if (oldUrl) URL.revokeObjectURL(oldUrl);
 
@@ -269,6 +496,9 @@ function wireLoadoutScreenshotIntake(slot) {
     });
 
     remove.addEventListener("click", () => {
+        const session = newIntakeSession(intakeKey);
+        session.pending = true;
+        session.conflict = "Reattach item views to finish verification.";
         const url = prototypeState.loadoutScreenshotUrls[slotKey];
         if (url) URL.revokeObjectURL(url);
         delete prototypeState.loadoutScreenshots[slotKey];
@@ -282,8 +512,10 @@ function wireLoadoutScreenshotIntake(slot) {
         remove.hidden = true;
         read.disabled = true;
         confirm.hidden = true;
-        status.textContent = "Temporary";
+        status.textContent = "Reattach views · unverified draft";
         readout.hidden = true;
+        renderIntakeGate(intakeKey);
+        updateLoadoutIntelligence();
     });
 
     read.addEventListener("click", async () => {
@@ -295,6 +527,11 @@ function wireLoadoutScreenshotIntake(slot) {
             return;
         }
 
+        const session = newIntakeSession(intakeKey);
+        const original = JSON.stringify(getLoadoutItem(slotKey));
+        session.reading = true;
+        prototypeState.loadoutVerified[slotKey] = false;
+        updateLoadoutIntelligence();
         read.disabled = true;
         confirm.hidden = true;
         status.textContent = "Reading…";
@@ -330,6 +567,12 @@ function wireLoadoutScreenshotIntake(slot) {
                 }
             }
 
+            if (prototypeState.intakeSessions[intakeKey] !== session || prototypeState.loadoutScreenshots[slotKey] !== file) return;
+            if (JSON.stringify(getLoadoutItem(slotKey)) !== original) {
+                readoutText.textContent = "Fields changed during the read. Read again to replace them.";
+                readout.hidden = false;
+                return;
+            }
             if ((extraction.detected ?? []).length < 2) {
                 ocrText.textContent = rawOcrPasses
                     .map((text, index) => `--- Tesseract pass ${index + 1} ---\n${String(text ?? "").trim() || "(no text)"}`)
@@ -342,6 +585,8 @@ function wireLoadoutScreenshotIntake(slot) {
             }
 
             applyExtractionToLoadout(slotKey, extraction);
+            session.captures = [{ fileName: file.name, passes: [...rawOcrPasses], accepted: true }];
+            session.incomplete = /\bScroll\s+Down\b/i.test(extraction.rawText ?? "");
             prototypeState.loadoutExtractions[slotKey] = extraction;
             prototypeState.loadoutVerified[slotKey] = false;
 
@@ -356,17 +601,22 @@ function wireLoadoutScreenshotIntake(slot) {
             confirm.textContent = `Confirm ${slot.label} Data`;
             markUnsaved();
         } catch (error) {
+            if (prototypeState.intakeSessions[intakeKey] !== session) return;
             console.error("Darkstorm Equipment screenshot read failed:", error);
             readout.hidden = false;
             readoutText.textContent =
                 `Darkstorm could not read this ${slot.label.toLowerCase()} screenshot. Try a tighter crop or enter the item manually.`;
             status.textContent = "Read failed";
         } finally {
+            session.reading = false;
+            if (prototypeState.intakeSessions[intakeKey] !== session) return;
             read.disabled = false;
+            renderIntakeGate(intakeKey);
         }
     });
 
     confirm.addEventListener("click", () => {
+        if (!prototypeState.loadoutExtractions[slotKey] || intakeBlocked(prototypeState.intakeSessions[intakeKey])) return;
         prototypeState.loadoutVerified[slotKey] = true;
         updateLoadoutSummary(slotKey);
         updateLoadoutStatus();
@@ -488,7 +738,8 @@ function loadoutIntelligenceFor(character) {
     }
 
     const screenshotDrafts = filled.filter(({ slot }) =>
-        prototypeState.loadoutExtractions[slot.key] && !prototypeState.loadoutVerified[slot.key]
+        (prototypeState.loadoutExtractions[slot.key] || prototypeState.loadoutScreenshots[slot.key] ||
+            intakeBlocked(prototypeState.intakeSessions[`loadout:${slot.key}`])) && !prototypeState.loadoutVerified[slot.key]
     );
     if (screenshotDrafts.length) {
         const labels = screenshotDrafts.map(({ slot }) => slot.label).join(", ");
@@ -606,6 +857,13 @@ function loadSelectedSlotFromLoadout() {
     clearItemScreenshot("equipped");
     setGear("equipped", equippedItem);
     prototypeState.itemConfirmed.equipped = Boolean(prototypeState.loadoutVerified[slotKey]);
+    if (!prototypeState.loadoutVerified[slotKey] &&
+        (prototypeState.loadoutExtractions[slotKey] || intakeBlocked(prototypeState.intakeSessions[`loadout:${slotKey}`]))) {
+        const session = newIntakeSession("equipped");
+        session.pending = true;
+        session.conflict = "Verify this item in Equipment, then load the slot again, or reattach its screenshots here.";
+        updateItemConfirmationUI("equipped");
+    }
 
     prototypeState.lastGearComparison = null;
     prototypeState.candidateEquipped = false;
@@ -741,14 +999,14 @@ function setAffixDetails(prefix, details = []) {
     }
 }
 
-function numericAffixValue(detail) {
+function numericAffixRoll(detail) {
     return decimalFromOcr(String(detail?.value ?? ""));
 }
 
 function affixValueFor(details, pattern) {
     return details
         .filter(detail => pattern.test(String(detail?.stat ?? "")))
-        .reduce((sum, detail) => sum + numericAffixValue(detail), 0);
+        .reduce((sum, detail) => sum + numericAffixRoll(detail), 0);
 }
 
 function itemDisplayName(item, fallback = "Item") {
@@ -835,269 +1093,17 @@ function extractionShowsScroll(extraction) {
 
 function updateContinuationUI(prefix) {
     const ui = screenshotElements(prefix);
-    const incomplete = Boolean(prototypeState.screenshotIncomplete[prefix]);
-    const continuation = prototypeState.continuations[prefix];
-
-    if (ui.continuationNotice) ui.continuationNotice.hidden = !incomplete;
-    if (ui.continuationLabel) ui.continuationLabel.hidden = !incomplete;
-    if (ui.continuationRead) {
-        ui.continuationRead.hidden = !incomplete;
-        ui.continuationRead.disabled = !continuation?.file;
-        ui.continuationRead.textContent = continuation?.file
-            ? "Read continuation"
-            : "Read continuation";
+    // The shared controller owns continuation selection and completeness review.
+    for (const element of [ui.continuationNotice, ui.continuationLabel, ui.continuationRead]) {
+        if (element) element.hidden = true;
     }
-    if (ui.continuationNoticeText && incomplete) {
-        ui.continuationNoticeText.textContent = continuation?.file
-            ? `Continuation selected: ${continuation.fileName}. Read it to merge this item's remaining data.`
-            : "Darkstorm detected a scrollable tooltip. Add the scrolled continuation before confirming this item.";
-    }
+    renderIntakeGate(prefix);
 }
 
 function clearContinuation(prefix) {
-    const continuation = prototypeState.continuations[prefix];
-    if (continuation?.url) URL.revokeObjectURL(continuation.url);
-    prototypeState.continuations[prefix] = null;
+    delete prototypeState.intakeSessions[prefix];
     prototypeState.screenshotIncomplete[prefix] = false;
-    const ui = screenshotElements(prefix);
-    if (ui.continuationInput) ui.continuationInput.value = "";
     updateContinuationUI(prefix);
-}
-
-function setContinuationScreenshot(prefix, file) {
-    if (!file) return;
-    if (file.type && !file.type.startsWith("image/")) {
-        window.alert("Please choose an image file for the continuation screenshot.");
-        return;
-    }
-
-    const previous = prototypeState.continuations[prefix];
-    if (previous?.url) URL.revokeObjectURL(previous.url);
-
-    prototypeState.continuations[prefix] = {
-        file,
-        url: URL.createObjectURL(file),
-        fileName: file.name || "Continuation screenshot",
-        size: file.size || 0,
-        type: file.type || "image"
-    };
-    prototypeState.itemConfirmed[prefix] = false;
-    updateContinuationUI(prefix);
-    updateItemConfirmationUI(prefix);
-}
-
-function sameItemContinuationCheck(prefix, baseExtraction, continuationExtraction) {
-    const current = getGear(prefix);
-    const next = continuationExtraction?.fields ?? {};
-    const conflicts = [];
-
-    if (current.itemPower && next.itemPower && current.itemPower !== next.itemPower) {
-        conflicts.push("item power");
-    }
-    if (
-        current.itemType && next.itemType &&
-        normalizedItemName(current.itemType) !== normalizedItemName(next.itemType)
-    ) {
-        conflicts.push("item type");
-    }
-
-    return { ok: conflicts.length === 0, conflicts };
-}
-
-function continuationPowerFragment(rawText) {
-    const lines = cleanedOcrLines(rawText);
-    const stop = /\b(?:properties lost when equipped|requires level|sell value|durability|tempers?)\b/i;
-
-    for (let start = 0; start < lines.length; start += 1) {
-        const collected = [];
-        for (let index = start; index < lines.length && collected.length < 8; index += 1) {
-            if (index > start && stop.test(lines[index])) break;
-            collected.push(lines[index]);
-        }
-        const text = cleanPowerText(collected.join(" "));
-        if (!/\b(?:vampiric\s+curse|army\s+of\s+the\s+dead|souls?|soul\s+unleashed)\b/i.test(text)) continue;
-
-        const range = decimalRangeFromLine(text);
-        if (!range) continue;
-        const percents = [...text.matchAll(/([0-9OIlS,.]+(?:\.[0-9]+)?)\s*%/gi)]
-            .map(match => decimalFromOcr(match[1]))
-            .filter(value => Number.isFinite(value) && value > 0);
-        const roll = percents.find(value => value >= range.low && value <= range.high) ?? 0;
-        if (!roll) continue;
-
-        return {
-            text,
-            roll: String(roll) + "%",
-            min: String(range.low) + "%",
-            max: String(range.high) + "%"
-        };
-    }
-    return null;
-}
-
-function mergeContinuationExtraction(prefix, extraction, ocrConfidence) {
-    const current = getGear(prefix);
-    const storedBase = prototypeState.baseScreenshotExtractions[prefix];
-    const currentExtraction = storedBase
-        ? {
-            ...storedBase,
-            fields: {
-                ...storedBase.fields,
-                // Form values win when the gamer has already corrected them.
-                ...current,
-                affixDetails: Array.isArray(current.affixDetails)
-                    ? current.affixDetails.map(detail => ({ ...detail }))
-                    : []
-            }
-        }
-        : {
-            fields: current,
-            detected: [],
-            inferred: [],
-            rejected: [],
-            uncertain: [],
-            rawText: ""
-        };
-    const continuationFragment = continuationPowerFragment(extraction.rawText ?? "");
-    if (continuationFragment) {
-        const existingPower = currentExtraction.fields?.power ?? "";
-        const parsedContinuationPower = extraction.fields?.power ?? "";
-        extraction.fields.power = [existingPower, parsedContinuationPower, continuationFragment.text]
-            .filter(Boolean)
-            .filter((value, index, array) => array.indexOf(value) === index)
-            .join(" ");
-        extraction.fields.power = cleanPowerText(extraction.fields.power);
-        extraction.fields.powerValue = extraction.fields.powerValue || continuationFragment.roll;
-        extraction.fields.powerMin = extraction.fields.powerMin || continuationFragment.min;
-        extraction.fields.powerMax = extraction.fields.powerMax || continuationFragment.max;
-    }
-
-    const check = sameItemContinuationCheck(prefix, currentExtraction, extraction);
-    const ui = screenshotElements(prefix);
-
-    if (!check.ok) {
-        ui.readout.hidden = false;
-        ui.readoutText.textContent =
-            `Continuation mismatch: ${check.conflicts.join(", ")} conflicts with the current item. Darkstorm did not merge this screenshot.`;
-        prototypeState.screenshotIncomplete[prefix] = true;
-        updateContinuationUI(prefix);
-        return false;
-    }
-
-    const merged = mergeScreenshotExtractions(currentExtraction, extraction);
-
-    // Continuations are additive evidence. Never let an empty or partial
-    // continuation erase decision data already recovered from the first view.
-    const preserveKeys = [
-        "name", "rarity", "itemType", "itemPower", "baseArmor", "armor",
-        "damage", "requiredLevel", "power", "powerValue", "powerMin",
-        "powerMax", "tempers", "masterwork", "sockets", "socketContents"
-    ];
-    preserveKeys.forEach(key => {
-        const existing = current[key];
-        const next = merged.fields[key];
-        const existingHasValue = existing !== "" && existing !== 0 && existing != null;
-        const nextIsMissing = next === "" || next === 0 || next == null;
-        if (existingHasValue && nextIsMissing) {
-            merged.fields[key] = existing;
-        }
-    });
-
-    const currentAffixes = Array.isArray(current.affixDetails)
-        ? current.affixDetails
-        : [];
-    const mergedAffixes = Array.isArray(merged.fields.affixDetails)
-        ? merged.fields.affixDetails
-        : [];
-    const additiveAffixes = currentAffixes.map(detail => ({ ...detail }));
-    mergedAffixes.forEach(detail => {
-        if (!detail?.stat) return;
-        const existing = additiveAffixes.find(item =>
-            String(item.stat).toLowerCase() === String(detail.stat).toLowerCase()
-        );
-        if (!existing) {
-            if (additiveAffixes.length < MAX_AFFIX_ROWS) additiveAffixes.push({ ...detail });
-            return;
-        }
-        if (!existing.value && detail.value) existing.value = detail.value;
-        if (!existing.min && detail.min) existing.min = detail.min;
-        if (!existing.max && detail.max) existing.max = detail.max;
-    });
-    merged.fields.affixDetails = additiveAffixes;
-    merged.fields.affixes = formatAffixDetails(additiveAffixes);
-
-    setGear(prefix, merged.fields);
-    prototypeState.baseScreenshotExtractions[prefix] = {
-        ...merged,
-        fields: {
-            ...merged.fields,
-            affixDetails: Array.isArray(merged.fields?.affixDetails)
-                ? merged.fields.affixDetails.map(detail => ({ ...detail }))
-                : []
-        }
-    };
-    prototypeState.screenshotItemTypes[prefix] =
-        merged.fields.itemType || prototypeState.screenshotItemTypes[prefix] || "";
-    prototypeState.itemConfirmed[prefix] = false;
-    prototypeState.screenshotIncomplete[prefix] = extractionShowsScroll(extraction) &&
-        /\bScroll\s+Down\b/i.test(extraction.rawText ?? "");
-
-    ui.readout.hidden = false;
-    ui.ocrText.textContent = [
-        ui.ocrText.textContent,
-        "",
-        "--- Continuation screenshot ---",
-        extraction.rawText || "No text detected."
-    ].join("\n");
-    ui.readoutText.textContent =
-        `Continuation merged. OCR text confidence: ${Math.round(ocrConfidence)}%. Review the combined item fields before confirming.`;
-
-    updateContinuationUI(prefix);
-    updateItemConfirmationUI(prefix);
-    updateGearSlotMismatchUI();
-    markUnsaved();
-    return true;
-}
-
-async function readContinuationScreenshot(prefix) {
-    const continuation = prototypeState.continuations[prefix];
-    const ui = screenshotElements(prefix);
-    if (!continuation?.file) return;
-
-    ui.continuationRead.disabled = true;
-    ui.continuationRead.textContent = "Reading continuation…";
-
-    try {
-        const result = await window.Tesseract.recognize(continuation.file, "eng");
-        const rawText = result?.data?.text ?? "";
-        let confidence = Number(result?.data?.confidence ?? 0);
-        let extraction = parseDiabloItemText(rawText, el.comparisonSlot.value);
-
-        if (shouldRunEnhancedRead(extraction)) {
-            try {
-                const enhancedSource = await createEnhancedOcrSource(continuation.file);
-                const enhancedResult = await window.Tesseract.recognize(enhancedSource, "eng");
-                const enhancedExtraction = parseDiabloItemText(
-                    enhancedResult?.data?.text ?? "",
-                    el.comparisonSlot.value
-                );
-                extraction = mergeScreenshotExtractions(extraction, enhancedExtraction);
-                confidence = Math.max(confidence, Number(enhancedResult?.data?.confidence ?? 0));
-            } catch (error) {
-                console.warn("Darkstorm enhanced continuation read failed:", error);
-            }
-        }
-
-        mergeContinuationExtraction(prefix, extraction, confidence);
-    } catch (error) {
-        console.error("Darkstorm continuation read failed:", error);
-        ui.readout.hidden = false;
-        ui.readoutText.textContent =
-            "Darkstorm could not read the continuation screenshot. Try a tighter crop or enter the remaining item data manually.";
-    } finally {
-        ui.continuationRead.textContent = "Read continuation";
-        ui.continuationRead.disabled = !prototypeState.continuations[prefix]?.file;
-    }
 }
 
 function formatScreenshotSize(bytes = 0) {
@@ -1152,8 +1158,9 @@ function renderItemScreenshot(prefix) {
     ui.dropZone.classList.add("has-image");
 }
 
-function clearItemScreenshot(prefix, { revoke = true } = {}) {
+function clearItemScreenshot(prefix, { revoke = true, preserveDraft = false } = {}) {
     const screenshot = prototypeState.screenshots[prefix];
+    const needsReview = preserveDraft && (screenshot || prototypeState.baseScreenshotExtractions[prefix]) && !prototypeState.itemConfirmed[prefix];
     prototypeState.baseScreenshotExtractions[prefix] = null;
     clearContinuation(prefix);
 
@@ -1164,6 +1171,11 @@ function clearItemScreenshot(prefix, { revoke = true } = {}) {
     prototypeState.screenshots[prefix] = null;
     prototypeState.screenshotItemTypes[prefix] = "";
     prototypeState.itemConfirmed[prefix] = false;
+    if (needsReview) {
+        const session = newIntakeSession(prefix);
+        session.pending = true;
+        session.conflict = "Reattach item views to finish verification.";
+    }
     resetScreenshotControls(prefix);
     updateItemConfirmationUI(prefix);
     updateGearSlotMismatchUI();
@@ -1191,6 +1203,7 @@ function setItemScreenshot(prefix, file) {
         type: file.type || "image"
     };
     prototypeState.itemConfirmed[prefix] = false;
+    newIntakeSession(prefix);
 
     renderItemScreenshot(prefix);
     updateItemConfirmationUI(prefix);
@@ -1320,13 +1333,13 @@ function preferredComparisonSlot(itemType, currentSlot = el.comparisonSlot?.valu
 }
 
 function itemConfirmationRequired(prefix) {
-    return Boolean(prototypeState.screenshots[prefix]);
+    return Boolean(prototypeState.screenshots[prefix] || intakeBlocked(prototypeState.intakeSessions[prefix]));
 }
 
 function confirmationBlockingState() {
     const pending = SCREENSHOT_PREFIXES.filter(prefix =>
         itemConfirmationRequired(prefix) &&
-        !prototypeState.itemConfirmed[prefix]
+        (!prototypeState.itemConfirmed[prefix] || intakeBlocked(prototypeState.intakeSessions[prefix]))
     );
 
     return {
@@ -1370,9 +1383,9 @@ function updateItemConfirmationUI(prefix) {
         button.textContent = prefix === "equipped"
             ? "Confirm Equipped Item Data"
             : "Confirm Candidate Item Data";
-    } else if (prototypeState.screenshotIncomplete[prefix]) {
+    } else if (prototypeState.screenshotIncomplete[prefix] || intakeBlocked(prototypeState.intakeSessions[prefix])) {
         panel.classList.add("needs-confirmation");
-        status.textContent = "Incomplete capture · continuation needed";
+        status.textContent = prototypeState.intakeSessions[prefix]?.conflict || "Incomplete capture · continuation needed";
         button.disabled = true;
         button.textContent = "Add continuation before confirming";
     } else if (confirmed) {
@@ -1409,7 +1422,8 @@ function invalidateItemConfirmation(prefix, { resetComparison = true } = {}) {
 }
 
 function confirmItemData(prefix) {
-    if (!itemConfirmationRequired(prefix)) return;
+    if (!itemConfirmationRequired(prefix) || prototypeState.screenshotIncomplete[prefix] ||
+        intakeBlocked(prototypeState.intakeSessions[prefix])) return;
 
     const currentType = el[prefix + "ItemType"].value.trim();
     if (currentType) {
@@ -3481,11 +3495,18 @@ async function readItemScreenshot(prefix) {
         return;
     }
 
+    const session = newIntakeSession(prefix);
+    const original = JSON.stringify(getGear(prefix));
+    const comparisonSlot = el.comparisonSlot.value;
+    session.reading = true;
+    invalidateItemConfirmation(prefix);
     ui.read.disabled = true;
     ui.read.textContent = "Reading…";
     ui.remove.disabled = true;
     ui.dropZone.classList.add("reading");
     resetScreenshotReadout(prefix);
+    renderIntakeGate(prefix);
+    const rawOcrPasses = [];
 
     try {
         const result = await window.Tesseract.recognize(
@@ -3504,10 +3525,11 @@ async function readItemScreenshot(prefix) {
         );
 
         const rawText = result?.data?.text ?? "";
+        rawOcrPasses.push(rawText);
         let ocrConfidence = Number(result?.data?.confidence ?? 0);
         let extraction = parseDiabloItemText(
             rawText,
-            el.comparisonSlot.value
+            comparisonSlot
         );
         let enhancedUsed = false;
 
@@ -3523,12 +3545,13 @@ async function readItemScreenshot(prefix) {
                     "eng"
                 );
                 const enhancedText = enhancedResult?.data?.text ?? "";
+                rawOcrPasses.push(enhancedText);
                 const enhancedConfidence = Number(
                     enhancedResult?.data?.confidence ?? 0
                 );
                 const enhancedExtraction = parseDiabloItemText(
                     enhancedText,
-                    el.comparisonSlot.value
+                    comparisonSlot
                 );
 
                 extraction = mergeScreenshotExtractions(
@@ -3548,6 +3571,14 @@ async function readItemScreenshot(prefix) {
             }
         }
 
+        if (prototypeState.intakeSessions[prefix] !== session || prototypeState.screenshots[prefix] !== screenshot) return;
+        if (JSON.stringify(getGear(prefix)) !== original || el.comparisonSlot.value !== comparisonSlot) {
+            ui.readoutText.textContent = "Fields changed during the read. Read again to replace them.";
+            ui.readout.hidden = false;
+            return;
+        }
+        session.captures = [{ fileName: screenshot.fileName, passes: [...rawOcrPasses], accepted: true }];
+        session.incomplete = /\bScroll\s+Down\b/i.test(extraction.rawText ?? "");
         applyScreenshotExtraction(prefix, extraction, ocrConfidence);
         prototypeState.screenshotIncomplete[prefix] =
             /\bScroll\s+Down\b/i.test(extraction.rawText ?? "");
@@ -3557,6 +3588,7 @@ async function readItemScreenshot(prefix) {
             ? `OCR ${Math.round(ocrConfidence)}% · enhanced review`
             : `OCR ${Math.round(ocrConfidence)}% · review`;
     } catch (error) {
+        if (prototypeState.intakeSessions[prefix] !== session) return;
         console.error("Darkstorm screenshot read failed:", error);
         ui.readout.hidden = false;
         ui.readoutText.textContent =
@@ -3564,6 +3596,9 @@ async function readItemScreenshot(prefix) {
         ui.ocrText.textContent = "";
         ui.status.textContent = "Read failed";
     } finally {
+        session.reading = false;
+        if (prototypeState.intakeSessions[prefix] !== session) return;
+        renderIntakeGate(prefix);
         ui.read.disabled = false;
         ui.read.textContent = "Read Screenshot";
         ui.remove.disabled = false;
@@ -3585,16 +3620,10 @@ function wireScreenshotIntake() {
         });
 
         ui.remove.addEventListener("click", () => {
-            clearItemScreenshot(prefix);
+            clearItemScreenshot(prefix, { preserveDraft: true });
         });
 
-        ui.continuationInput?.addEventListener("change", event => {
-            setContinuationScreenshot(prefix, event.target.files?.[0]);
-        });
-
-        ui.continuationRead?.addEventListener("click", () => {
-            readContinuationScreenshot(prefix);
-        });
+        wireContinuationTarget(prefix, ui.readout.parentElement);
 
         ["dragenter", "dragover"].forEach(eventName => {
             ui.dropZone.addEventListener(eventName, event => {
@@ -3679,6 +3708,10 @@ function getCharacterFromForm() {
         gear: {
             loadout: getLoadoutFromForm(),
             loadoutVerified: { ...prototypeState.loadoutVerified },
+            intakePending: Object.fromEntries(Object.entries(prototypeState.intakeSessions)
+                .filter(([key, session]) => intakeBlocked(session) ||
+                    (key.startsWith("loadout:") ? !prototypeState.loadoutVerified[key.slice(8)] : !prototypeState.itemConfirmed[key]))
+                .map(([key]) => [key, true])),
             comparisonSlot: el.comparisonSlot.value,
             equipped: getGear("equipped"),
             candidate: getGear("candidate")
@@ -3718,6 +3751,22 @@ function setGear(prefix, gear) {
 
 function populateForm(character) {
     clearAllItemScreenshots();
+    prototypeState.intakeSessions = {};
+    Object.values(prototypeState.loadoutScreenshotUrls).forEach(url => URL.revokeObjectURL(url));
+    prototypeState.loadoutScreenshots = {};
+    prototypeState.loadoutScreenshotUrls = {};
+    EQUIPMENT_SLOTS.forEach(slot => {
+        const root = `loadout-${slot.key}`;
+        document.getElementById(`${root}-screenshot-input`).value = "";
+        document.getElementById(`${root}-screenshot-preview`).hidden = true;
+        document.getElementById(`${root}-screenshot-empty`).hidden = false;
+        document.getElementById(`${root}-screenshot-read`).disabled = true;
+        document.getElementById(`${root}-screenshot-remove`).hidden = true;
+        document.getElementById(`${root}-confirm`).hidden = true;
+        document.getElementById(`${root}-readout`).hidden = true;
+        document.getElementById(`${root}-screenshot-status`).textContent = "Temporary";
+        document.getElementById(`continuation-loadout:${slot.key}`).hidden = true;
+    });
     prototypeState.loadoutExtractions = {};
     prototypeState.loadoutVerified = {};
 
@@ -3745,6 +3794,18 @@ function populateForm(character) {
 
     setLoadout(loadout);
     prototypeState.loadoutVerified = { ...(character.gear?.loadoutVerified ?? {}) };
+    const pendingIntakes = character.gear?.intakePending ?? {};
+    [...SCREENSHOT_PREFIXES, ...EQUIPMENT_SLOTS.map(slot => `loadout:${slot.key}`)].forEach(key => {
+        if (pendingIntakes[key] !== true) return;
+        const session = newIntakeSession(key);
+        session.pending = true;
+        session.conflict = "Screenshots are temporary. Reattach the item views to finish verification.";
+        if (key.startsWith("loadout:")) {
+            const slot = key.slice(8);
+            prototypeState.loadoutVerified[slot] = false;
+            document.getElementById(`loadout-${slot}-screenshot-status`).textContent = "Reattach views · unverified draft";
+        }
+    });
     updateLoadoutIntelligence();
     el.comparisonSlot.value = character.gear?.comparisonSlot ?? "chest";
     const selectedEquipped = loadout[el.comparisonSlot.value] ?? {};
@@ -4679,10 +4740,6 @@ window.addEventListener("beforeunload", () => {
         const screenshot = prototypeState.screenshots[prefix];
         if (screenshot?.url) {
             URL.revokeObjectURL(screenshot.url);
-        }
-        const continuation = prototypeState.continuations[prefix];
-        if (continuation?.url) {
-            URL.revokeObjectURL(continuation.url);
         }
     });
 });
