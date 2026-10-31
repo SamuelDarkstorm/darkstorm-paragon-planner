@@ -18,6 +18,7 @@
 
   --warning: #c28a45;
   --danger: #b33a3a;
+}
 
 html {
     scroll-behavior: smooth;
@@ -683,7 +684,7 @@ footer {
 
 .affix-row {
     display: grid;
-    grid-template-columns: 28px minmax(150px, 1.4fr) minmax(90px, .8fr) minmax(90px, .8fr) minmax(90px, .8fr);
+    grid-template-columns: 28px minmax(0, 1.4fr) repeat(3, minmax(0, .8fr));
     gap: 8px;
     align-items: center;
 }
@@ -709,4 +710,22 @@ footer {
   height: auto;
   margin: 8px 0 10px;
   border-radius: 8px;
+}
+/* Both Equipment cards and comparisons adapt to their own available width. */
+.affix-rows {
+    min-width: 0;
+    container-type: inline-size;
+}
+
+@container (max-width: 480px) {
+    .affix-row {
+        grid-template-columns: 28px minmax(0, 1fr);
+    }
+    .affix-row input {
+        grid-column: 2;
+    }
+    .affix-row-number {
+        grid-row: 1 / span 4;
+        align-self: start;
+    }
 }

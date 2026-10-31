@@ -159,7 +159,22 @@ function renderEquipmentLoadout() {
         `;
         fields.append(intake);
 
+        const onFieldInput = () => handleLoadoutFieldInput(slot);
         LOADOUT_FIELDS.forEach(field => {
+            if (field.key === "affixes") {
+                const block = document.createElement("div");
+                block.className = "structured-data-block wide";
+                const heading = document.createElement("div");
+                heading.className = "field-heading";
+                heading.innerHTML = '<span>Affixes</span><span class="muted">Stat · value · visible roll range</span>';
+                const rows = document.createElement("div");
+                rows.className = "affix-rows";
+                rows.setAttribute("aria-label", slot.label + " affixes");
+                renderAffixRows(rows, "loadout-" + slot.key, onFieldInput, slot.label);
+                block.append(heading, rows);
+                fields.append(block);
+                return;
+            }
             const label = document.createElement("label");
             if (field.wide) label.classList.add("wide");
             label.append(document.createTextNode(field.label));
@@ -184,21 +199,7 @@ function renderEquipmentLoadout() {
             if (field.min !== undefined) input.min = field.min;
             if (field.max !== undefined) input.max = field.max;
 
-            input.addEventListener("input", () => {
-                if (prototypeState.loadoutExtractions[slot.key]) {
-                    prototypeState.loadoutVerified[slot.key] = false;
-                    const confirm = document.getElementById("loadout-" + slot.key + "-confirm");
-                    const status = document.getElementById("loadout-" + slot.key + "-screenshot-status");
-                    if (confirm) {
-                        confirm.hidden = false;
-                        confirm.textContent = "Confirm " + slot.label + " Data";
-                    }
-                    if (status) status.textContent = "Edited · confirm again";
-                }
-                updateLoadoutSummary(slot.key);
-                updateLoadoutStatus();
-                markUnsaved();
-            });
+            input.addEventListener("input", onFieldInput);
 
             label.append(input);
             fields.append(label);
@@ -209,6 +210,26 @@ function renderEquipmentLoadout() {
     });
 
     updateLoadoutStatus();
+}
+
+function handleLoadoutFieldInput(slot) {
+    if (prototypeState.loadoutExtractions[slot.key]) {
+        prototypeState.loadoutVerified[slot.key] = false;
+        const confirm = document.getElementById("loadout-" + slot.key + "-confirm");
+        const status = document.getElementById("loadout-" + slot.key + "-screenshot-status");
+        if (confirm) {
+            confirm.hidden = false;
+            confirm.textContent = "Confirm " + slot.label + " Data";
+        }
+        if (status) status.textContent = "Edited · confirm again";
+    }
+    // A cell edit has the same verification/decision consequences as other
+    // equipment edits. Session blockers remain enforced by the confirmation handler.
+    prototypeState.lastGearComparison = null;
+    resetGearVerdict();
+    updateLoadoutSummary(slot.key);
+    updateLoadoutStatus();
+    markUnsaved();
 }
 
 function applyExtractionToLoadout(slotKey, extraction) {
@@ -645,7 +666,9 @@ function getLoadoutItem(slotKey) {
             : input.value.trim();
     });
 
-    item.affixDetails = affixDetailsFromLegacyText(item.affixes);
+    // Structured cells are authoritative; the text mirror keeps older exports readable.
+    item.affixDetails = getAffixDetails("loadout-" + slotKey);
+    item.affixes = formatAffixDetails(item.affixDetails);
     return item;
 }
 
@@ -667,6 +690,10 @@ function setLoadoutItem(slotKey, item = {}) {
         input.value = normalized[field.key] ?? (field.type === "number" ? 0 : "");
     });
 
+    const details = Array.isArray(item.affixDetails) && item.affixDetails.length
+        ? item.affixDetails
+        : affixDetailsFromLegacyText(item.affixes ?? "");
+    setAffixDetails("loadout-" + slotKey, details);
     updateLoadoutSummary(slotKey);
     updateLoadoutStatus();
 }
@@ -902,47 +929,40 @@ function affixFieldId(prefix, index, key) {
     return prefix + "Affix" + (index + 1) + key;
 }
 
-function renderGearAffixRows() {
-    SCREENSHOT_PREFIXES.forEach(prefix => {
-        const container = document.getElementById(prefix + "AffixRows");
-        if (!container) return;
-
-        container.innerHTML = "";
-
-        for (let index = 0; index < MAX_AFFIX_ROWS; index += 1) {
-            const row = document.createElement("div");
-            row.className = "affix-row";
-
-            const rowNumber = document.createElement("span");
-            rowNumber.className = "affix-row-number";
-            rowNumber.textContent = String(index + 1);
-            row.append(rowNumber);
-
-            [
-                ["Stat", "Stat name"],
-                ["Value", "Value"],
-                ["Min", "Roll low"],
-                ["Max", "Roll high"]
-            ].forEach(([key, placeholder]) => {
+function renderAffixRows(container, prefix, onInput, accessibleName = prefix) {
+    container.innerHTML = "";
+    for (let index = 0; index < MAX_AFFIX_ROWS; index += 1) {
+        const row = document.createElement("div");
+        row.className = "affix-row";
+        const rowNumber = document.createElement("span");
+        rowNumber.className = "affix-row-number";
+        rowNumber.textContent = String(index + 1);
+        row.append(rowNumber);
+        [["Stat", "Stat name"], ["Value", "Value"], ["Min", "Roll low"], ["Max", "Roll high"]]
+            .forEach(([key, placeholder]) => {
                 const input = document.createElement("input");
                 input.id = affixFieldId(prefix, index, key);
                 input.type = "text";
                 input.placeholder = placeholder;
-                input.setAttribute("aria-label", prefix + " affix " + (index + 1) + " " + placeholder);
-
-                input.addEventListener("input", () => {
-                    if (itemConfirmationRequired(prefix)) {
-                        invalidateItemConfirmation(prefix);
-                        updateGearSlotMismatchUI();
-                    }
-                    markUnsaved();
-                });
-
+                input.setAttribute("aria-label", accessibleName + " affix " + (index + 1) + " " + placeholder);
+                input.addEventListener("input", onInput);
                 row.append(input);
             });
+        container.append(row);
+    }
+}
 
-            container.append(row);
-        }
+function renderGearAffixRows() {
+    SCREENSHOT_PREFIXES.forEach(prefix => {
+        const container = document.getElementById(prefix + "AffixRows");
+        if (!container) return;
+        renderAffixRows(container, prefix, () => {
+            if (itemConfirmationRequired(prefix)) {
+                invalidateItemConfirmation(prefix);
+                updateGearSlotMismatchUI();
+            }
+            markUnsaved();
+        });
     });
 }
 
