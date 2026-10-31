@@ -73,3 +73,21 @@ test('one clean supported title survives when the other pass loses its header', 
         parseDiabloItemText('850 Item Power\\n1,275 Armor\\n+90 Intelligence [83 - 99]','helm'))`);
     assert.equal(result.fields.name,'PRIMAL BASCINET OF BITING COLD');
 });
+
+// Additional spelling visible in the comparison intake's enhanced diagnostic.
+test('Thoms and Tnorns normalize only as supported Thorns stat rows', () => {
+    for (const label of ['Thorns', 'Tnorns', 'Thoms']) {
+        context.statLabel = label;
+        const row = run("sequentialAffixes(['+887 ' + statLabel + ' [611-916]'],0,/imprinted/i).details[0]");
+        assert.equal(row.stat,'Thorns'); assert.equal(row.value,'+887');
+        assert.equal(row.min,'611'); assert.equal(row.max,'916');
+    }
+});
+test('Thoms without a valid roll remains uncertain rather than inventing 887', () => {
+    for (const line of ['Thoms [611-916]', '+1887 Thoms [611-916]']) {
+        context.statLine = line;
+        const row = run('sequentialAffixes([statLine],0,/imprinted/i).details[0]');
+        assert.equal(row.stat,'Thorns'); assert.equal(row.value,'');
+        assert.equal(row.min,''); assert.equal(row.max,'');
+    }
+});
