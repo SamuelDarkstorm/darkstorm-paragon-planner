@@ -4419,20 +4419,7 @@ function updateFeedbackUI() {
     };
     status.textContent = labels[prototypeState.feedbackResult];
 
-    document.querySelectorAll(".affix-rows input").forEach(input => {
-    input.addEventListener("input", () => {
-        const prefix = input.id.startsWith("equipped") ? "equipped" : "candidate";
-        prototypeState.lastGearComparison = null;
-        prototypeState.candidateEquipped = false;
-        resetGearVerdict();
-        if (itemConfirmationRequired(prefix)) {
-            invalidateItemConfirmation(prefix, { resetComparison: false });
-            updateGearSlotMismatchUI();
-        }
-    });
-});
-
-document.querySelectorAll("[data-feedback]").forEach(button => {
+    document.querySelectorAll("[data-feedback]").forEach(button => {
         button.setAttribute(
             "aria-pressed",
             String(button.dataset.feedback === prototypeState.feedbackResult)
@@ -4614,6 +4601,19 @@ SCREENSHOT_PREFIXES.forEach(prefix => {
                 updateGearSlotMismatchUI();
             }
         });
+    });
+});
+
+document.querySelectorAll(".affix-rows input").forEach(input => {
+    input.addEventListener("input", () => {
+        const prefix = input.id.startsWith("equipped") ? "equipped" : "candidate";
+        prototypeState.lastGearComparison = null;
+        prototypeState.candidateEquipped = false;
+        resetGearVerdict();
+        if (itemConfirmationRequired(prefix)) {
+            invalidateItemConfirmation(prefix, { resetComparison: false });
+            updateGearSlotMismatchUI();
+        }
     });
 });
 
