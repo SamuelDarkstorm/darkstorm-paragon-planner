@@ -1573,6 +1573,13 @@ function exactItemTypeFromText(text) {
     return matches[0]?.[1] ?? "";
 }
 
+function itemTitleLooksSupported(value) {
+    const words = String(value ?? "").trim().split(/\s+/).filter(Boolean);
+    if (!words.length || words.some(word => /^[iIlL]$/.test(word))) return false;
+    const capsTitle = words.filter(word => /^[A-Z]{3,}$/.test(word)).length >= 2;
+    return !capsTitle || words.every(word => /^[A-Z'’&-]+$/.test(word) || /^(?:of|the|and|a)$/i.test(word));
+}
+
 function recoverItemIdentityFromRawPasses(rawPasses = []) {
     const results = [];
 
@@ -1603,9 +1610,8 @@ function recoverItemIdentityFromRawPasses(rawPasses = []) {
         results.push({
             rarity,
             itemType,
-            name: nameResult.confident
-                ? nameResult.value
-                : (headerIdentity.name || "")
+            name: [nameResult.confident ? nameResult.value : "", headerIdentity.name || ""]
+                .find(value => value && itemTitleLooksSupported(value)) || ""
         });
     });
 
@@ -2021,7 +2027,7 @@ function canonicalAffixLine(line) {
         [/strength/i, "Strength"],
         [/dexterity/i, "Dexterity"],
         [/willpower/i, "Willpower"],
-        [/thorns/i, "Thorns"],
+        [/t[hn]orns/i, "Thorns"],
         [/armor/i, "Armor"],
         [/essence/i, "Essence"],
         [/minion/i, "Minion"],
@@ -2147,7 +2153,7 @@ function affixStatDefinitionFromText(text) {
         [/strength/i, "Strength", false],
         [/dexterity/i, "Dexterity", false],
         [/willpower/i, "Willpower", false],
-        [/thorns/i, "Thorns", false],
+        [/t[hn]orns/i, "Thorns", false],
         [/armor/i, "Armor", false],
         [/essence/i, "Essence", false],
         [/minion/i, "Minion", false],
@@ -2204,7 +2210,7 @@ function lineStatDefinitions(line) {
         [/strength/ig, "Strength", false],
         [/dexterity/ig, "Dexterity", false],
         [/willpower/ig, "Willpower", false],
-        [/thorns/ig, "Thorns", false],
+        [/t[hn]orns/ig, "Thorns", false],
         [/armor/ig, "Armor", false],
         [/essence/ig, "Essence", false],
         [/minion/ig, "Minion", false],
@@ -2221,7 +2227,7 @@ function lineStatDefinitions(line) {
                 continue;
             }
             const resolvedStat = typeof stat === "function" ? stat(source) : stat;
-            definitions.push({ stat: resolvedStat, percent, charIndex: match.index });
+            definitions.push({ stat: resolvedStat, percent, charIndex: match.index, endIndex: match.index + match[0].length });
         }
     });
 
@@ -2241,6 +2247,9 @@ function lineStatDefinitions(line) {
 function signedValuesOnLine(line) {
     const source = String(line ?? "");
     return [...source.matchAll(/[+-]\s*[0-9OIlS,.]+(?:\.[0-9]+)?%?/g)]
+        // A hyphen following a number is a range separator, not an affix roll.
+        .filter(match => !match[0].startsWith("-") ||
+            !/[0-9OIlS,.]\s*$/.test(source.slice(0, match.index)))
         .map(match => ({
             value: match[0]
                 .replace(/\s+/g, "")
@@ -2285,9 +2294,12 @@ function affixAnchors(lines, startIndex, stopPattern) {
                 )
                 .sort((a, b) => b.charIndex - a.charIndex)[0];
 
+            const rangeOffset = line.slice(definition.endIndex).search(/[\[(]/);
+            const rangeStart = rangeOffset < 0 ? segmentEnd : definition.endIndex + rangeOffset;
             const inside = signedValues.find(value =>
-                value.charIndex >= definition.charIndex &&
-                value.charIndex < segmentEnd
+                value.charIndex >= definition.endIndex &&
+                value.charIndex < Math.min(segmentEnd, rangeStart) &&
+                /^[\s:|]*$/.test(line.slice(definition.endIndex, value.charIndex))
             );
 
             let chosen = preceding ?? inside ?? null;
@@ -2370,10 +2382,12 @@ function sequentialAffixes(lines, startIndex, stopPattern) {
 
             // Multiplier ranges are often wrapped by OCR, e.g.
             // "x18% All Damage Multiplier [12 -" then "20]%".
-            const wrappedSegment = [
-                sameLineSegment,
-                ...lines.slice(anchor.lineIndex + 1, Math.min(lines.length, anchor.lineIndex + 3))
-            ].join(" ");
+            const wrappedRows = [];
+            for (let index = anchor.lineIndex + 1; index < Math.min(lines.length, anchor.lineIndex + 3); index += 1) {
+                if (stopPattern.test(lines[index]) || lineStatDefinitions(lines[index]).length || /[a-z]{3,}/i.test(lines[index])) break;
+                wrappedRows.push(lines[index]);
+            }
+            const wrappedSegment = [sameLineSegment, ...wrappedRows].join(" ");
 
             const multiplierRange = wrappedSegment.match(
                 /[\[(]?\s*([0-9OIlS,.]+(?:\.[0-9]+)?)\s*[-–—]\s*([0-9OIlS,.]+(?:\.[0-9]+)?)\s*[\])]?\s*%?/
@@ -2409,6 +2423,9 @@ function sequentialAffixes(lines, startIndex, stopPattern) {
             ) {
                 if (stopPattern.test(lines[lineIndex])) break;
                 if (lineStatDefinitions(lines[lineIndex]).length) break;
+                // Wrapped range rows contain numbers/punctuation, not power prose.
+                // Stop even when the next power's wording is unknown to the parser.
+                if (/[a-z]{3,}/i.test(lines[lineIndex])) break;
                 range = decimalRangeFromLine(lines[lineIndex]);
                 if (range) break;
             }
@@ -2435,14 +2452,8 @@ function sequentialAffixes(lines, startIndex, stopPattern) {
             numeric > 0 &&
             (!range || (numeric >= range.low && numeric <= range.high));
 
-        // A range without a trustworthy value is not enough to assign that
-        // range to an affix. OCR can miss the value/row boundary and expose a
-        // later legendary-power range; keep the whole affix uncertain instead
-        // of displaying a confidently wrong roll range.
-        // Keep a trustworthy visible range even when OCR mangles the roll
-        // itself. The range is useful gamer-review evidence and lets the UI
-        // show "value unknown" instead of confidently preserving an impossible
-        // number such as -11% against a visible [7% - 11%] range.
+        // A range is decision data only when the same record supports its roll.
+        // Keep the raw OCR for review, but never attach an orphaned range.
         const percentSuffix = anchor.percent ? "%" : "";
         details.push({
             stat: anchor.stat,
@@ -2451,8 +2462,8 @@ function sequentialAffixes(lines, startIndex, stopPattern) {
                     ? displayValue + "%"
                     : displayValue
             ) : "",
-            min: range ? String(range.low) + percentSuffix : "",
-            max: range ? String(range.high) + percentSuffix : ""
+            min: range && valueValid ? String(range.low) + percentSuffix : "",
+            max: range && valueValid ? String(range.high) + percentSuffix : ""
         });
 
         if (!valueValid) uncertain.push(anchor.stat);
@@ -2749,7 +2760,7 @@ function parseDiabloItemText(rawText, slotKey) {
         inferredPowerIndex = lines.findIndex((line, index) => {
             if (index < cursor) return false;
             const current = String(line ?? "");
-            const actionStart = /\b(?:when\s+you|your\s+summons|a\s+dark\s+aura|consuming\s+a\s+corpse|only\s+army|cold\s+damage\s+is\s+increased|your\s+desecrated\s+ground)\b/i.test(current);
+            const actionStart = /\b(?:when\s+you|your\s+summons|a\s+dark\s+aura|consuming\s+a\s+corpse|only\s+army|cold\s+damages?\s+(?:is\s+)?increased|your\s+desecrated\s+ground)\b/i.test(current);
             if (!actionStart) return false;
             const window = lines.slice(index, Math.min(lines.length, index + 5)).join(" ");
             const powerLanguage = /\b(?:trigger|increased\s+damage|damage\s+is\s+increased|vampiric\s+curse|decrepify|iron\s+maiden|thorns\s+attack|souls?|vulnerable)\b/i.test(window);
@@ -2860,7 +2871,7 @@ function parseDiabloItemText(rawText, slotKey) {
     // a readable power blank.
     if (!powerBlock) {
         const bitingColdIndex = lines.findIndex((line, index) =>
-            index >= cursor && /\bcold\s+damage\s+is\s+increased\b/i.test(line)
+            index >= cursor && /\bcold\s+damages?\s+(?:is\s+)?increased\b/i.test(line)
         );
         if (bitingColdIndex >= 0) {
             powerBlock = powerBlockFromLines(lines, bitingColdIndex);
@@ -2918,6 +2929,13 @@ function parseDiabloItemText(rawText, slotKey) {
         fields.socketContents = socketEffect.text;
         detected.push("Sockets");
         detected.push("Socket contents");
+    }
+
+    if (fields.name && !itemTitleLooksSupported(fields.name)) {
+        fields.name = "";
+        const nameIndex = detected.indexOf("Name");
+        if (nameIndex >= 0) detected.splice(nameIndex, 1);
+        uncertain.push("Name");
     }
 
     return {
@@ -3009,6 +3027,44 @@ function shouldRunEnhancedRead(extraction) {
         !fields.itemPower ||
         (!fields.armor && !fields.damage)
     );
+}
+
+// Reconcile complete per-pass records. Never combine a value from one pass
+// with another pass's unsupported range, or prefer a pass merely by order.
+function reconcileAffixPasses(...passes) {
+    const groups = new Map();
+    passes.flat().forEach(row => {
+        if (!row?.stat) return;
+        const key = row.stat.toLowerCase();
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(row);
+    });
+    const details = [], uncertain = [];
+    groups.forEach(rows => {
+        const stat = rows[0].stat;
+        const supported = rows.filter(row => {
+            if (!row.value) return false;
+            const value = decimalFromOcr(row.value);
+            return value > 0 && (!row.min || !row.max ||
+                (value >= decimalFromOcr(row.min) && value <= decimalFromOcr(row.max)));
+        });
+        const bounded = supported.filter(row => row.min && row.max);
+        const candidates = bounded.length ? bounded : supported;
+        const values = new Set(candidates.map(row => decimalFromOcr(row.value)));
+        let value = "", min = "", max = "";
+        if (values.size === 1) {
+            value = candidates[0].value;
+            const ranges = new Map(bounded.map(row => [
+                `${decimalFromOcr(row.min)}:${decimalFromOcr(row.max)}`, row
+            ]));
+            if (ranges.size === 1) {
+                const record = [...ranges.values()][0];
+                min = record.min; max = record.max;
+            } else if (ranges.size > 1) uncertain.push(`${stat} range`);
+        } else uncertain.push(stat);
+        details.push({ stat, value, min, max });
+    });
+    return { details: details.slice(0, MAX_AFFIX_ROWS), uncertain };
 }
 
 function mergeScreenshotExtractions(primary, enhanced) {
@@ -3107,161 +3163,9 @@ function mergeScreenshotExtractions(primary, enhanced) {
         ? enhanced.fields.affixDetails
         : affixDetailsFromLegacyText(enhanced.fields?.affixes);
 
-    const combinedAffixes = [];
-
-    [...primaryAffixes, ...enhancedAffixes].forEach(detail => {
-        if (!detail?.stat) return;
-
-        const existing = combinedAffixes.find(item =>
-            String(item.stat).toLowerCase() === String(detail.stat).toLowerCase()
-        );
-
-        if (!existing) {
-            if (combinedAffixes.length < MAX_AFFIX_ROWS) {
-                combinedAffixes.push({ ...detail });
-            }
-            return;
-        }
-
-        if (!existing.min && detail.min) existing.min = detail.min;
-        if (!existing.max && detail.max) existing.max = detail.max;
-
-        if (existing.value && detail.value && existing.value !== detail.value) {
-            const low = decimalFromOcr(existing.min || detail.min);
-            const high = decimalFromOcr(existing.max || detail.max);
-            const existingNumeric = decimalFromOcr(existing.value);
-            const detailNumeric = decimalFromOcr(detail.value);
-            const existingFits = !low || !high || (existingNumeric >= low && existingNumeric <= high);
-            const detailFits = !low || !high || (detailNumeric >= low && detailNumeric <= high);
-
-            if (!existingFits && detailFits) {
-                existing.value = detail.value;
-                merged.uncertain = merged.uncertain.filter(label => label !== detail.stat);
-            } else if (existingFits && !detailFits) {
-                // Keep the already range-consistent value.
-            } else {
-                existing.value = "";
-                merged.uncertain.push(detail.stat);
-            }
-            return;
-        }
-
-        if (!existing.value && detail.value) {
-            const numeric = decimalFromOcr(detail.value);
-            const low = decimalFromOcr(existing.min);
-            const high = decimalFromOcr(existing.max);
-            const fitsRange = !low || !high || (numeric >= low && numeric <= high);
-
-            if (fitsRange) {
-                existing.value = detail.value;
-            } else {
-                merged.uncertain.push(detail.stat);
-            }
-        }
-    });
-
-    // Reparse the combined raw OCR after both passes are available. This
-    // preserves the actual top-to-bottom tooltip records and prevents a noisy
-    // enhanced pass from relabeling a good primary-pass value.
-    // Reparse each OCR pass independently. Never concatenate passes before
-    // affix parsing: doing so lets the end of the primary pass borrow a range
-    // from the beginning/power block of the enhanced pass.
-    const combinedStopPattern = /\b(?:imprinted|aspect|empty socket|requires level|sell value|durability|tempers?|mark as junk|compare|drop|scroll)\b/i;
-    const rawAffixes = [primary.rawText ?? "", enhanced.rawText ?? ""]
-        .flatMap(raw => {
-            const passLines = cleanedOcrLines(raw);
-            if (!passLines.length) return [];
-
-            const explicitPowerIndex = passLines.findIndex(line =>
-                /\b(?:imprinted|aspect)\b/i.test(line)
-            );
-            const metadataIndex = passLines.findIndex(line =>
-                /\b(?:empty socket|requires level|sell value|durability|tempers?|mark as junk|compare|drop|scroll)\b/i.test(line)
-            );
-            const uniqueStart = uniquePowerStartIndex(passLines, 0);
-            const inferredLegendaryStart = passLines.findIndex(line =>
-                /\b(?:cold\s+damage\s+is\s+increased|your\s+desecrated\s+ground|when\s+you\b)/i.test(line)
-            );
-            const socketEffect = socketEffectFromLines(passLines);
-            const powerBoundary = [explicitPowerIndex, uniqueStart, inferredLegendaryStart]
-                .filter(index => index >= 0)
-                .sort((a, b) => a - b)[0] ?? -1;
-            const hardEnd = powerBoundary >= 0
-                ? powerBoundary
-                : (socketEffect?.lineIndex >= 0
-                    ? socketEffect.lineIndex
-                    : (metadataIndex >= 0 ? metadataIndex : passLines.length));
-
-            const details = sequentialAffixes(
-                passLines.slice(0, hardEnd),
-                0,
-                combinedStopPattern
-            ).details;
-            recoverMultiplierAffixesBefore(passLines, hardEnd).forEach(detail => {
-                const existing = details.find(item =>
-                    String(item.stat).toLowerCase() === String(detail.stat).toLowerCase()
-                );
-                if (!existing) details.push(detail);
-                else {
-                    if (!existing.value && detail.value) existing.value = detail.value;
-                    if (!existing.min && detail.min) existing.min = detail.min;
-                    if (!existing.max && detail.max) existing.max = detail.max;
-                }
-            });
-            return details;
-        });
-
-    rawAffixes.forEach(detail => {
-        if (!detail?.stat) return;
-        const existing = combinedAffixes.find(item =>
-            String(item.stat).toLowerCase() === String(detail.stat).toLowerCase()
-        );
-
-        if (!existing) {
-            if (combinedAffixes.length < MAX_AFFIX_ROWS) {
-                combinedAffixes.push({ ...detail });
-            }
-            return;
-        }
-
-        // Fill missing pieces from a self-consistent raw record. If the current
-        // value is outside the visible roll range but this raw record fits it,
-        // repair the value rather than preserving a known-impossible read.
-        if (!existing.min && detail.min) existing.min = detail.min;
-        if (!existing.max && detail.max) existing.max = detail.max;
-
-        const low = decimalFromOcr(existing.min);
-        const high = decimalFromOcr(existing.max);
-        const currentNumeric = decimalFromOcr(existing.value);
-        const detailNumeric = decimalFromOcr(detail.value);
-        const currentFits = !existing.value || !low || !high ||
-            (currentNumeric >= low && currentNumeric <= high);
-        const detailFits = detail.value && (!low || !high ||
-            (detailNumeric >= low && detailNumeric <= high));
-
-        if (!existing.value && detail.value) {
-            existing.value = detail.value;
-        } else if (!currentFits && detailFits) {
-            existing.value = detail.value;
-            merged.uncertain = merged.uncertain.filter(label => label !== detail.stat);
-        }
-    });
-
-    combinedAffixes.forEach(detail => {
-        const numeric = decimalFromOcr(detail.value);
-        const low = decimalFromOcr(detail.min);
-        const high = decimalFromOcr(detail.max);
-
-        if (
-            detail.value &&
-            low &&
-            high &&
-            (numeric < low || numeric > high)
-        ) {
-            detail.value = "";
-            merged.uncertain.push(detail.stat);
-        }
-    });
+    const reconciliation = reconcileAffixPasses(primaryAffixes, enhancedAffixes);
+    const combinedAffixes = reconciliation.details;
+    merged.uncertain.push(...reconciliation.uncertain);
 
     // Scalar base stats are trustworthy when either pass found a plausible
     // bounded header value. Re-read both raw passes before finalizing merge so
@@ -3395,6 +3299,9 @@ function mergeScreenshotExtractions(primary, enhanced) {
     }
 
     merged.fields.affixDetails = combinedAffixes.slice(0, MAX_AFFIX_ROWS);
+    if (combinedAffixes.some(row => row.stat === "Maximum Life")) {
+        merged.fields.life = affixValueFor(combinedAffixes, /^Maximum Life$/i);
+    }
     if (merged.fields.affixDetails.length) {
         merged.fields.affixes = formatAffixDetails(merged.fields.affixDetails);
         merged.detected.push("Affixes");
@@ -3412,7 +3319,7 @@ function mergeScreenshotExtractions(primary, enhanced) {
     merged.uncertain = [...new Set([
         ...merged.uncertain,
         ...(enhanced.uncertain ?? [])
-    ])];
+    ])].filter(label => !combinedAffixes.some(row => row.stat === label && row.value));
 
     merged.rawText = [
         primary.rawText,
