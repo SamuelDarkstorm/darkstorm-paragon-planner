@@ -306,6 +306,7 @@ textarea {
 }
 
 .equipment-slot-card {
+    align-self: start;
     border: 1px solid var(--line);
     border-radius: 10px;
     background: #11161c;
