@@ -4407,8 +4407,20 @@ function analyzeBuild() {
 
 function updateFeedbackUI() {
     const status = document.getElementById("feedbackStatus");
+    const buttons = document.querySelectorAll("[data-feedback]");
+
+    buttons.forEach(button => {
+        button.setAttribute(
+            "aria-pressed",
+            String(Boolean(prototypeState.feedbackResult) &&
+                button.dataset.feedback === prototypeState.feedbackResult)
+        );
+    });
+
     if (!prototypeState.feedbackResult) {
-        status.textContent = "No test result";
+        status.textContent = prototypeState.testAwaitingFeedback && prototypeState.activeTest
+            ? "Awaiting test result: " + prototypeState.activeTest.itemName
+            : "No test result";
         return;
     }
 
@@ -4418,13 +4430,6 @@ function updateFeedbackUI() {
         worse: "Test result: Worse"
     };
     status.textContent = labels[prototypeState.feedbackResult];
-
-    document.querySelectorAll("[data-feedback]").forEach(button => {
-        button.setAttribute(
-            "aria-pressed",
-            String(button.dataset.feedback === prototypeState.feedbackResult)
-        );
-    });
 }
 
 function savePrototype() {
